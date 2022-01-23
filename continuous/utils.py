@@ -1,3 +1,5 @@
+import numpy as np
+
 def save(filename, *args):
     with open(filename, 'wb') as f:
         for arr in args:

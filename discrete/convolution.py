@@ -1,10 +1,13 @@
 import numpy as np
 from scipy.ndimage import gaussian_filter
 
-def coarse_grain(binned, sigma, truncate=12):
+def coarse_grain(binned, sigma, truncate=12, wrap=True):
     sigma_vector = np.zeros(shape=(len(binned.shape),1))
     sigma_vector[0:2] = sigma
-    smoothed = gaussian_filter(binned, sigma_vector, mode='wrap', truncate=truncate)
+    if wrap:
+        smoothed = gaussian_filter(binned, sigma_vector, mode='wrap', truncate=truncate)
+    else:
+        smoothed = gaussian_filter(binned, sigma_vector, truncate=truncate)
     return smoothed
 
 def gauss1d(x0, sigma, truncate=12, xmin=0, xmax=0, wrap=True):
