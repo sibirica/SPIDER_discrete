@@ -1,5 +1,5 @@
 import numpy as np
-from ipynb.fs.full.library import *
+from library import *
 from weight import *
 import copy
 from findiff import FinDiff
@@ -170,8 +170,8 @@ def decode(data_name):
     # return obs_name, dorders
     return "", [0, 0, 0]
 
-def eval_term(ts, weight, data_dict, domain, dxs, debug=False): #, dim
-    # ts: TermSum or LibraryTerm
+def eval_term(lt, weight, data_dict, domain, dxs, debug=False): #, dim
+    # lt: LibraryTerm
     # weight
     # data_dict: keys are Observable names, values are data arrays
     # domain: IntegrationDomain corresponding to where the term is evaluated
@@ -181,8 +181,8 @@ def eval_term(ts, weight, data_dict, domain, dxs, debug=False): #, dim
     product = np.ones(shape=domain.shape)
     # won't execute at all for a constant term
     if debug:
-        print(f"TermSum {ts}")
-    for idx, obs in enumerate(ts.observable_list):
+        print(f"LibraryTerm {lt}")
+    for idx, obs in enumerate(lt.observable_list):
         dorders = obs.dimorders
         obs_dim = obs.obs_dim
         #if debug:
@@ -350,4 +350,4 @@ def get_char_size(term, scale_dict, dx, dt):
     return product
 
 def find_term(term_list, string): # find index of term in list matching string
-    return [elt.__repr__() for elt in term_list].index(string)
+    return [str(elt) for elt in term_list].index(string)
