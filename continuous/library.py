@@ -1,5 +1,6 @@
 from functools import reduce
 from operator import add
+from itertools import permutations
 from numpy import inf
 import numpy as np
 
@@ -51,6 +52,26 @@ class Observable(object):
 
     def __str__(self):
         return self.string
+    
+    # For sorting: convention is in ascending order of name
+    
+    def __lt__ (self, other):
+        if not isinstance(other, Observable):
+            raise ValueError("Second argument is not an observable.") 
+        return self.string<other.string
+
+    def __gt__ (self, other):
+        if not isinstance(other, Observable):
+            raise ValueError("Second argument is not an observable.") 
+        return other.__lt__(self)
+
+    def __eq__ (self, other):
+        if not isinstance(other, Observable):
+            raise ValueError("Second argument is not an observable.") 
+        return self.string==other.string
+
+    def __ne__ (self, other):
+        return not self.__eq__(other)
 
 @dataclass
 class LibraryPrimitive(object):
@@ -83,6 +104,29 @@ class LibraryPrimitive(object):
     
     def __str__(self):
         return self.__repr__()
+    
+    # For sorting: convention is (1) in ascending order of name/observable, (2) in DESCENDING order of dorder
+    
+    def __lt__ (self, other):
+        if not isinstance(other, LibraryPrimitive):
+            raise ValueError("Second argument is not a LibraryPrimitive.") 
+        if self.observable == other.observable:
+            return self.dorder > other.dorder
+        else:
+            return self.observable < other.observable
+
+    def __gt__ (self, other):
+        if not isinstance(other, LibraryPrimitive):
+            raise ValueError("Second argument is not a LibraryPrimitive.") 
+        return other.__lt__(self)
+
+    def __eq__ (self, other):
+        if not isinstance(other, LibraryPrimitive):
+            raise ValueError("Second argument is not a LibraryPrimitive.") 
+        return self.observable==other.observable and self.dorder==other.dorder
+
+    def __ne__ (self, other):
+        return not self.__eq__(other)
     
 class IndexedPrimitive(LibraryPrimitive):
     dim_to_let = {0: 'x', 1: 'y', 2: 'z'}
@@ -153,7 +197,7 @@ class IndexedPrimitive(LibraryPrimitive):
         newords[dim] += 1
         return IndexedPrimitive(self, newords=newords)
     
-class LibraryTensor(object):
+class LibraryTensor(object): # unindexed version of LibraryTerm
     def __init__(self, observables):
         if isinstance(observables, LibraryPrimitive):  # constructor for library terms consisting of an observable with some derivatives
             self.simple = True
@@ -181,20 +225,70 @@ class LibraryTensor(object):
     
     def __str__(self):
         return self.__repr__()
+
+def labels_to_index_list(labels, n): # n = number of observables
+    index_list = [list() for i in range(2*n)]
+    for key in labels.keys():
+        for a in labels[key]:
+            index_list[a].append(key)
+    return index_list
+
+def index_list_to_labels(index_list):
+    labels = dict()
+    for i, li in enumerate(index_list):
+        for ind in li:
+            if ind in labels.keys():
+                labels[ind].append(i)
+            else:
+                labels[ind] = [i]
+    return labels
     
+def flatten(t):
+    return [item for sublist in t for item in sublist]      
+
+num_to_let_dict = {0: 'i', 1: 'j', 2: 'k', 3: 'l', 4: 'm', 5: 'n', 6: 'p'}
+    
+def num_to_let(num_list):
+    return [[num_to_let_dict[i] for i in li] for li in num_list]
+
+def canonicalize_indices(indices):
+    curr_ind = 1
+    subs_dict = {0: 0}
+    for num in indices:
+        if num not in subs_dict.keys():
+            subs_dict[num] = curr_ind
+            curr_ind += 1
+    return subs_dict
+
+def is_canonical(indices):
+    subs_dict = canonicalize_indices(indices)
+    for key in subs_dict:
+        if subs_dict[key] != key:
+            return False
+    return True
+
 class LibraryTerm(object):
-    num_to_let = {0: 'i', 1: 'j', 2: 'k', 3: 'l', 4: 'm', 5: 'n', 6: 'p'}
+    canon_dict = dict() # used to store ambiguous canonicalizations (which shouldn't exist for less than 6 indices)
     
-    def __init__(self, libtensor, labels):
+    def __init__(self, libtensor, labels=None, index_list=None):
         self.observable_list = libtensor.observable_list
+        self.libtensor = libtensor
         self.rank = (libtensor.rank % 2)
         self.complexity = libtensor.complexity
-        self.labels = labels
-        self.index_list = [list() for i in range(len(self.observable_list)*2)]
-        for key in labels.keys():
-            letter = self.num_to_let[key]
-            for a in labels[key]:
-                self.index_list[a].append(letter)
+        if labels is not None: # from labels constructor
+            self.labels = labels # dictionary: key = index #, value(s) = location of index among 2n bins
+            #self.index_list = [list() for i in range(len(self.observable_list)*2)] # list: indices in each of 2n bins
+            self.index_list = labels_to_index_list(labels, len(self.observable_list))
+        else: # from index_list constructor
+            self.index_list = index_list
+            self.labels = index_list_to_labels(index_list)
+        self.der_index_list = self.index_list[0::2]
+        self.obs_index_list = self.index_list[1::2]
+        self.is_canonical = None
+        #for key in labels.keys():
+        #    letter = self.num_to_let[key]
+        #    for a in labels[key]:
+        #        self.index_list[a].append(letter)
 #         self.index_list = [list() for i in range(len(self.observable_list)*2)] 
 #         if len(labels)>0:
 #             num_indices = [(obs.dorder.xorder, obs.observable.rank) for obs in self.observable_list]
@@ -224,14 +318,90 @@ class LibraryTerm(object):
         else:
             return TermSum([self] + other.term_list)
         
+    def __eq__(self, other):
+        if isinstance(other, LibraryTerm):
+            return self.observable_list==other.observable_list and self.index_list==other.index_list
+        else:
+            return False
+    
+    def __ne__(self, other):
+        return not self.__eq__(other)
+    
+    def __lt__(self, other):
+        return str(self)<str(other)
+    
+    def __gt__(self, other):
+        return str(self)>str(other)
+    
     def __repr__(self):
-        repstr = [label_repr(obs, ind1, ind2)+' * ' for (obs, ind1, ind2) in zip(self.observable_list, self.index_list[0::2], self.index_list[1::2])]
+        repstr = [label_repr(obs, ind1, ind2)+' * ' for (obs, ind1, ind2) in zip(self.observable_list, num_to_let(self.der_index_list), num_to_let(self.obs_index_list))]
         return reduce(add, repstr)[:-3]
     
-def flatten(t):
-    return [item for sublist in t for item in sublist]    
-
-class IndexedTerm(object):
+    def __str__(self):
+        return self.__repr__()
+    
+    def structure_canonicalize(self):
+        indexed_zip = zip(self.observable_list, self.der_index_list, self.obs_index_list)
+        sorted_zip = sorted(indexed_zip, key=lambda x:x[0])
+        sorted_obs = [e[0] for e in sorted_zip]
+        sorted_ind1 = [e[1] for e in sorted_zip]
+        sorted_ind2 = [e[2] for e in sorted_zip]
+        sorted_ind = flatten(list(zip(sorted_ind1, sorted_ind2)))
+        sorted_libtens = LibraryTensor(sorted_obs)
+        return LibraryTerm(sorted_libtens, index_list=sorted_ind)
+    
+    def index_canonicalize(self):
+        #new_index_list = [list() for i in range(len(self.observable_list)*2)] 
+        subs_dict = canonicalize_indices(flatten(self.index_list))
+        new_index_list = [[subs_dict[i] for i in li] for li in self.index_list]
+        return LibraryTerm(self.libtensor, index_list=new_index_list)
+    
+    def reorder(self, template):
+        indexed_zip = zip(self.observable_list, self.der_index_list, self.obs_index_list, template)
+        sorted_zip = sorted(indexed_zip, key=lambda x:x[3])
+        sorted_obs = [e[0] for e in sorted_zip]
+        sorted_ind1 = [e[1] for e in sorted_zip]
+        sorted_ind2 = [e[2] for e in sorted_zip]
+        sorted_ind = flatten(list(zip(sorted_ind1, sorted_ind2)))
+        sorted_libtens = LibraryTensor(sorted_obs)
+        return LibraryTerm(sorted_libtens, index_list=sorted_ind)
+    
+    def canonicalize(self): # return canonical representation and set is_canonical flag (used to determine if valid)
+        str_canon = self.structure_canonicalize()
+        if str(str_canon) in self.canon_dict:
+            canon = self.canon_dict[str(str_canon)]
+            self.is_canonical = (self==canon)
+            return canon
+        alternative_canons = []
+        for template in get_isomorphic_terms(str_canon.observable_list):
+            term = str_canon.reorder(template)
+            canon_term = term.index_canonicalize()
+            alternative_canons.append(canon_term)
+        canon = min(alternative_canons, key=str)
+        for alt_canon in alternative_canons:
+            self.canon_dict[str(alt_canon)] = canon
+        self.is_canonical = (self==canon)
+        return canon
+    
+def get_isomorphic_terms(obs_list, start_order=None):
+    if start_order is None:
+        start_order = list(range(len(obs_list)))
+    if len(obs_list) == 0:
+        yield []
+        return
+    reps = 1
+    prev = obs_list[0]
+    #if prev is None or prev.rank < 2:
+    #    for new_list in get_isomorphic_terms(obs_list[1:], start_order[1:], obs_list[0])
+    #        yield start_order[0]+new_list
+    #else:
+    while reps<len(obs_list) and prev == obs_list[reps]:
+        reps += 1
+    for new_list in get_isomorphic_terms(obs_list[reps:], start_order[reps:]):
+        for perm in permutations(start_order[:reps]):
+            yield list(perm)+new_list
+            
+class IndexedTerm(object): # LibraryTerm with i's mapped to x/y/z
     def __init__(self, libterm=None, space_orders=None, obs_dims=None, observable_list=None): #indterm=None, neworders=None,
         if observable_list is None: # normal "from scratch" constructor
             self.rank = libterm.rank
@@ -399,8 +569,12 @@ def list_labels(tensor):#, tensor_scaffold):
     #        if valid_canon_labeling(output_dict, tensor_scaffold)]
 
 # the lexicographic ordering rule is only tested up to N=5 and likely fails soon afterwards
-# use the more complex & complete unique_terms.py if needed
-def test_valid_label(output_dict, obs_list): # check if index labeling is valid (i.e. in non-decreasing order among identical terms)
+# use the more complex & complete unique_terms.py if needed -> more integrated implementation should be done here
+# check if index labeling is valid (i.e. in non-decreasing order among identical terms)
+# this excludes more incorrect options early than is_canonical
+def test_valid_label(output_dict, obs_list):
+    #index_list = labels_to_index_list(output_dict, len(obs_list))
+    #return is_canonical(flatten(index_list))
     if len(output_dict.keys())<2: # not enough indices for something to be invalid
         return True
     # this can be implemented more efficiently, but the cost is negligible for reasonably small N
@@ -431,7 +605,7 @@ def test_valid_label(output_dict, obs_list): # check if index labeling is valid 
                 if not clist2.special_bigger(clist1): # if (lexicographic) order decreases OR i appears late
                 #if not clist1<=clist2 or 0 in clist2.in_list:
                     return False
-    
+
     # this is only guaranteed to work if there is only 1 index per identical term
     #for key1 in output_dict.keys():
     #    for key2 in output_dict.keys():
@@ -440,13 +614,14 @@ def test_valid_label(output_dict, obs_list): # check if index labeling is valid 
     #                for val2 in output_dict[key2]:
     #                    if obs_list[val1//2]==obs_list[val2//2] and val1>val2:
     #                        return False # violation: decreasing label
-    
+
     # if we got this far, the labeling is valid
     return True
 
 rho = Observable('rho', 0)
 v = Observable('v', 1)
 def generate_terms_to(order, observables=[rho, v], max_observables=999):
+    observables = sorted(observables) # make sure ordering is consistent with canonicalization rules
     libterms = list()
     libterms.append(ConstantTerm())
     N = order # max number of "blocks" to include
@@ -461,7 +636,10 @@ def generate_terms_to(order, observables=[rho, v], max_observables=999):
             obs_orders = part[:-2]
             for tensor in raw_library_tensors(observables, obs_orders, nt, nx):
                 for label in list_labels(tensor):
-                    libterms.append(LibraryTerm(tensor, label))
+                    lt = LibraryTerm(tensor, label)
+                    canon = lt.canonicalize()
+                    if lt.is_canonical:
+                        libterms.append(LibraryTerm(tensor, label))
 #                 indexing_guide = []
 #                 rank = tensor.rank
 #                 if rank%2 == 1:
@@ -489,60 +667,6 @@ def generate_terms_to(order, observables=[rho, v], max_observables=999):
 #                         raise ValueError(f"Bad canonicalization {var}")
     return libterms
 
-def get_scaffold(obs_list):
-    if len(obs_list)>1:
-        i = 1
-        old_obs = obs_list[0]
-        obs = obs_list[1]
-        while old_obs==obs:
-            i += 1
-            if i==len(obs_list):
-                break
-            obs = obs_list[i]
-        if i>1:
-            sc = get_scaffold([old_obs])
-            if sc is not None:
-                rs = RepeatScaffold(sc, i)
-            else:
-                rs = None
-        else:
-            rs = get_scaffold([old_obs])
-        list_rem = obs_list[i:]
-        if len(list_rem)>0:
-            remsc = get_scaffold(list_rem)
-        else:
-            remsc = None
-        if remsc is not None and rs is not None:
-            return ProductScaffold(rs, get_scaffold(list_rem))
-        elif rs is not None:
-            return rs
-        elif remsc is not None:
-            return get_scaffold(list_rem)
-        else:
-            return None
-    else:
-        obs = obs_list[0]
-        xorder = obs.dorder.xorder
-        rank = obs.observable.rank
-        if xorder>0:
-            if xorder>1:
-                rs1 = RepeatScaffold(Index(), xorder)
-            else:
-                rs1 = Index()
-        if rank>0:
-            if rank>1:
-                rs2 = RepeatScaffold(Index(), rank)
-            else:
-                rs2 = Index()
-        if xorder>0 and rank>0:
-            return ProductScaffold(rs1, rs2)
-        elif xorder>0 and rank==0:
-            return rs1
-        elif xorder==0 and rank>0:
-            return rs2
-        else:
-            return None
-
 def partition(n,k):
     '''n is the integer to partition, k is the length of partitions, l is the min partition element size'''
     if k < 1:
@@ -554,6 +678,75 @@ def partition(n,k):
     for i in range(n+1):
         for result in partition(n-i,k-1):
             yield (i,)+result
+            
+class TermSum(object):
+    def __init__(self, term_list):
+        self.term_list = term_list
+        self.rank = term_list[0].rank
+      
+    def __add__(self, other):
+        if isinstance(other, TermSum):
+            return TermSum(self.term_list + other.term_list)
+        else:
+            return TermSum(self.term_list + [other])
+    
+    def __repr__(self):
+        repstr = [str(term)+' + ' for term in self.term_list]
+        return reduce(add, repstr)[:-3]
+
+# def get_scaffold(obs_list):
+#     if len(obs_list)>1:
+#         i = 1
+#         old_obs = obs_list[0]
+#         obs = obs_list[1]
+#         while old_obs==obs:
+#             i += 1
+#             if i==len(obs_list):
+#                 break
+#             obs = obs_list[i]
+#         if i>1:
+#             sc = get_scaffold([old_obs])
+#             if sc is not None:
+#                 rs = RepeatScaffold(sc, i)
+#             else:
+#                 rs = None
+#         else:
+#             rs = get_scaffold([old_obs])
+#         list_rem = obs_list[i:]
+#         if len(list_rem)>0:
+#             remsc = get_scaffold(list_rem)
+#         else:
+#             remsc = None
+#         if remsc is not None and rs is not None:
+#             return ProductScaffold(rs, get_scaffold(list_rem))
+#         elif rs is not None:
+#             return rs
+#         elif remsc is not None:
+#             return get_scaffold(list_rem)
+#         else:
+#             return None
+#     else:
+#         obs = obs_list[0]
+#         xorder = obs.dorder.xorder
+#         rank = obs.observable.rank
+#         if xorder>0:
+#             if xorder>1:
+#                 rs1 = RepeatScaffold(Index(), xorder)
+#             else:
+#                 rs1 = Index()
+#         if rank>0:
+#             if rank>1:
+#                 rs2 = RepeatScaffold(Index(), rank)
+#             else:
+#                 rs2 = Index()
+#         if xorder>0 and rank>0:
+#             return ProductScaffold(rs1, rs2)
+#         elif xorder>0 and rank==0:
+#             return rs1
+#         elif xorder==0 and rank>0:
+#             return rs2
+#         else:
+#             return None
 
 ### Akash code ###
 # from dataclasses import dataclass, field
@@ -734,18 +927,3 @@ def partition(n,k):
 #     elif isinstance(s, ProductScaffold):
 #         lhs = canonicalize(s.l, canon)
 #         return ProductScaffold(lhs, canonicalize(s.r, canon))
-
-class TermSum(object):
-    def __init__(self, term_list):
-        self.term_list = term_list
-        self.rank = term_list[0].rank
-      
-    def __add__(self, other):
-        if isinstance(other, TermSum):
-            return TermSum(self.term_list + other.term_list)
-        else:
-            return TermSum(self.term_list + [other])
-    
-    def __repr__(self):
-        repstr = [str(term)+' + ' for term in self.term_list]
-        return reduce(add, repstr)[:-3]
