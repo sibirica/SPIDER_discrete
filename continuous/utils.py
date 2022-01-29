@@ -1,6 +1,5 @@
 import numpy as np
 from library import *
-from ipynb.fs.full.identify_models import Equation
 
 def save(filename, *args):
     with open(filename, 'wb') as f:
@@ -53,11 +52,13 @@ def construct_from_string(input_str, type_str, obs_dict):
         term_list = []
         coeffs = []
         token_list = input_str.split(" + ")
-        print(token_list)
         for token in token_list:
             if token[0] == '-':
-                coeff = -1
-                term = token[1:]
+                if not token[1].isdigit():
+                    coeff = -1
+                    term = token[1:]
+                else:
+                    coeff, term = token.split(" * ", 1)
             elif token[0].isdigit():
                 coeff, term = token.split(" * ", 1)
             else:
@@ -65,7 +66,7 @@ def construct_from_string(input_str, type_str, obs_dict):
                 coeff = 1
             coeffs.append(float(coeff))
             term_list.append(construct_from_string(term, "LibraryTerm", obs_dict).canonicalize())
-        return Equation(term_list, coeffs)
+        return Equation(term_list, coeffs)#.canonicalize()
     else:
         raise ValueError(type_str + " is not a valid option.")
         

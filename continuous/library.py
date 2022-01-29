@@ -3,6 +3,7 @@ from operator import add
 from itertools import permutations
 from numpy import inf
 import numpy as np
+import copy
 
 from dataclasses import dataclass, field
 from typing import List
@@ -40,7 +41,11 @@ class CompList(object):
             return self>=other
 
 class DerivativeOrder(CompPair):
-    pass
+    def dt(self):
+        return DerivativeOrder(self.torder+1, self.xorder)
+    
+    def dx(self):
+        return DerivativeOrder(self.torder, self.xorder+1)
 
 @dataclass
 class Observable(object):
@@ -121,6 +126,12 @@ class LibraryPrimitive(object):
 
     def __ne__ (self, other):
         return not self.__eq__(other)
+    
+    def dt(self):
+        return LibraryPrimitive(self.dorder.dt(), self.observable)
+    
+    def dx(self):
+        return LibraryPrimitive(self.dorder.dx(), self.observable)
     
 class IndexedPrimitive(LibraryPrimitive):
     dim_to_let = {0: 'x', 1: 'y', 2: 'z'}
@@ -208,7 +219,7 @@ class LibraryTensor(object): # unindexed version of LibraryTerm
         elif other==1:
             return self
         else:
-            raise ValueError(f"Cannot multiply {self}, {other}")
+            raise ValueError(f"Cannot multiply {type(self)}, {type(other)}")
     
     def __rmul__(self, other):
         return __mul__(self, other)
@@ -259,7 +270,8 @@ def is_canonical(indices):
             return False
     return True
 
-class LibraryTerm(object):
+# note: be careful not to modify index_list or labels without remaking because the references are reused
+class LibraryTerm(object): 
     canon_dict = dict() # used to store ambiguous canonicalizations (which shouldn't exist for less than 6 indices)
     
     def __init__(self, libtensor, labels=None, index_list=None):
@@ -269,7 +281,6 @@ class LibraryTerm(object):
         self.complexity = libtensor.complexity
         if labels is not None: # from labels constructor
             self.labels = labels # dictionary: key = index #, value(s) = location of index among 2n bins
-            #self.index_list = [list() for i in range(len(self.observable_list)*2)] # list: indices in each of 2n bins
             self.index_list = labels_to_index_list(labels, len(self.observable_list))
         else: # from index_list constructor
             self.index_list = index_list
@@ -278,11 +289,11 @@ class LibraryTerm(object):
         self.obs_index_list = self.index_list[1::2]
         self.is_canonical = None
                 
-    #def __add__(self, other):
-    #    if isinstance(other, LibraryTerm):
-    #        return TermSum([self, other])
-    #    else:
-    #        return TermSum([self] + other.term_list)
+    def __add__(self, other):
+        if isinstance(other, LibraryTerm):
+            return TermSum([self, other])
+        else:
+            return TermSum([self] + other.term_list)
         
     def __eq__(self, other):
         if isinstance(other, LibraryTerm):
@@ -303,6 +314,27 @@ class LibraryTerm(object):
         repstr = [label_repr(obs, ind1, ind2)+' * ' for (obs, ind1, ind2) in zip(self.observable_list, num_to_let(self.der_index_list), num_to_let(self.obs_index_list))]
         return reduce(add, repstr)[:-3]
     
+    def __mul__(self, other):
+        if isinstance(other, LibraryTerm):
+            if self.rank < other.rank:
+                return other.__mul__(self)
+            shift = max(self.labels.keys())
+            if other.rank==1:
+                a, b = self.increment_indices(1), other.increment_indices(shift+1)
+            else:
+                a, b = self, other.increment_indices(shift)
+            return LibraryTerm(LibraryTensor(a.observable_list + b.observable_list),
+                               index_list = a.index_list + b.index_list).canonicalize()
+        elif str(other)=="1":
+            return self
+        elif isinstance(other, Equation):
+            return other.__mul__(self)
+        else:
+            raise ValueError(f"Cannot multiply {type(self)}, {type(other)}")
+    
+    def __rmul__(self, other):
+        return self.__mul__(other)
+    
     def structure_canonicalize(self):
         indexed_zip = zip(self.observable_list, self.der_index_list, self.obs_index_list)
         sorted_zip = sorted(indexed_zip, key=lambda x:x[0])
@@ -314,7 +346,9 @@ class LibraryTerm(object):
         return LibraryTerm(sorted_libtens, index_list=sorted_ind)
     
     def index_canonicalize(self):
-        #new_index_list = [list() for i in range(len(self.observable_list)*2)] 
+        #inc = 0
+        #if len(self.labels[0])==2: # if multiple i's, need to increment all indices
+        #    inc = 1
         subs_dict = canonicalize_indices(flatten(self.index_list))
         new_index_list = [[subs_dict[i] for i in li] for li in self.index_list]
         return LibraryTerm(self.libtensor, index_list=new_index_list)
@@ -345,6 +379,42 @@ class LibraryTerm(object):
             self.canon_dict[str(alt_canon)] = canon
         self.is_canonical = (self==canon)
         return canon
+    
+    def increment_indices(self, inc):
+        index_list = [[index+inc for index in li] for li in self.index_list]
+        return LibraryTerm(LibraryTensor(self.observable_list), index_list=index_list)
+        #self.index_list = [[index+inc for index in li] for li in self.index_list]
+        #self.labels = {k+inc: v for k, v in self.labels.items()}
+        #self.der_index_list = self.index_list[0::2]
+        #self.obs_index_list = self.index_list[1::2]
+    
+    def dt(self):
+        terms = []
+        for i, obs in enumerate(self.observable_list):
+            new_obs = obs.dt()
+            # note: no need to recanonicalize terms after a dt
+            lt = LibraryTerm(LibraryTensor(self.observable_list[:i]+[new_obs]+self.observable_list[i+1:]), 
+                             index_list=self.index_list)
+            terms.append(lt)
+        ts = TermSum(terms)
+        return ts.canonicalize()
+    
+    def dx(self):
+        terms = []
+        for i, obs in enumerate(self.observable_list):
+            new_obs = obs.dx()
+            new_index_list = copy.deepcopy(self.index_list)
+            new_index_list[2*i].append(0)
+            lt = LibraryTerm(LibraryTensor(self.observable_list[:i]+[new_obs]+self.observable_list[i+1:]),
+                             index_list=new_index_list)
+            if lt.rank == 0:
+                lt = lt.increment_indices(1)
+            lt = lt.canonicalize() # structure changes after derivative so we must recanonicalize
+            terms.append(lt)
+        ts = TermSum(terms)
+        #print(self.observable_list, "->", [term.observable_list for term in ts.term_list])
+        #print(self.index_list, "->", [term.index_list for term in ts.term_list])
+        return ts.canonicalize()
     
 def get_isomorphic_terms(obs_list, start_order=None):
     if start_order is None:
@@ -409,6 +479,7 @@ class IndexedTerm(object): # LibraryTerm with i's mapped to x/y/z
         for i, obs in enumerate(self.observable_list):
             yield obs.diff(dim)*self.drop(obs)
             
+# Note: must be handled separately in derivatives
 class ConstantTerm(IndexedTerm):
     def __init__(self):
         self.observable_list = []
@@ -582,4 +653,97 @@ def partition(n,k):
     for i in range(n+1):
         for result in partition(n-i,k-1):
             yield (i,)+result
+            
+class Equation(object): # can represent equation (expression = 0) OR expression
+    def __init__(self, term_list, coeffs): # terms are LibraryTerms, coeffs are real numbers
+        content = zip(term_list, coeffs)
+        sorted_content = sorted(content, key=lambda x:x[0])
+        # note that sorting guarantees canonicalization in equation term order
+        self.term_list = [e[0] for e in sorted_content]
+        self.coeffs = [e[1] for e in sorted_content]
+        self.rank = term_list[0].rank
+        # might want to define complexity function
+      
+    def __add__(self, other):
+        if isinstance(other, Equation):
+            return Equation(self.term_list + other.term_list, self.coeffs + other.coeffs)
+        else:
+            raise ValueError(f"Second argument {other}) is not an equation.")
+            
+    def __rmul__(self, other):
+        if isinstance(other, LibraryTerm):
+            return Equation([other*term for term in self.term_list], self.coeffs)
+        else: # multiplication by number
+            return Equation(self.term_list, [other*c for c in self.coeffs])
+        
+    def __mul__(self, other):
+        return self.__rmul__(other)
     
+    def __repr__(self):
+        repstr = [str(coeff) + ' * ' + str(term)+' + ' for term, coeff in zip(self.term_list, self.coeffs)]
+        return reduce(add, repstr)[:-3]
+    
+    def __str__(self):
+        return self.__repr__()+" = 0"
+    
+    def __eq__(self, other):
+        for term, ot in zip(self.term_list, other.term_list):
+            if term != ot:
+                return False
+        for coeff, ot in zip(self.coeffs, other.coeffs):
+            if term != ot:
+                return False
+        return True
+    
+    def dt(self):
+        components = [coeff*term.dt() for term, coeff in zip(self.term_list, self.coeffs)
+                      if not isinstance(term, ConstantTerm)]
+        return reduce(add, components)
+        
+    def dx(self):
+        components = [coeff*term.dx() for term, coeff in zip(self.term_list, self.coeffs)
+                      if not isinstance(term, ConstantTerm)]
+        return reduce(add, components)
+    
+    def canonicalize(self):
+        if len(self.term_list) == 0:
+            return self
+        term_list = []
+        coeffs = []
+        i = 0
+        while i < len(self.term_list):
+            reps = 0
+            prev = self.term_list[i]
+            while i < len(self.term_list) and prev == self.term_list[i]:
+                reps += self.coeffs[i]
+                i += 1
+            term_list.append(prev) 
+            coeffs.append(reps)
+        return Equation(term_list, coeffs)
+    
+    def eliminate_complex_term(self):
+        lhs = max(self.term_list, key=lambda t:t.complexity)
+        lhs_ind = self.term_list.index(lhs)
+        new_term_list = self.term_list[:lhs_ind]+self.term_list[lhs_ind+1:]
+        new_coeffs = self.coeffs[:lhs_ind]+self.coeffs[lhs_ind+1:]
+        new_coeffs = [c/self.coeffs[lhs_ind] for c in new_coeffs]
+        rhs = Equation(new_term_list, new_coeffs)
+        return lhs, rhs
+    
+class TermSum(Equation):
+    def __init__(self, term_list): # terms are LibraryTerms, coeffs are real numbers
+        self.term_list = sorted(term_list)
+        self.coeffs = [1]*len(term_list)
+        self.rank = term_list[0].rank
+        
+    def __str__(self):
+        repstr = [str(term)+' + ' for term in self.term_list]
+        return reduce(add, repstr)[:-3]
+    
+    def __add__(self, other):
+        if isinstance(other, TermSum):
+            return TermSum(self.term_list + other.term_list, self.coeffs + other.coeffs)
+        elif isinstance(other, Equation):
+            return Equation(self.term_list + other.term_list, self.coeffs + other.coeffs)
+        else:
+            raise ValueError(f"Second argument {other}) is not an equation.")
