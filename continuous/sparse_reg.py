@@ -1,6 +1,6 @@
 import numpy as np
 
-def sparse_reg(Theta, char_sizes=None, row_norms=None, valid_single=None, opts=None, avoid=[]):
+def sparse_reg(Theta, opts=None):
 # compute sparse regression on Theta * Xi = 0
 # Theta: matrix of integrated terms
 # char_sizes: vector of characteristic term sizes (per column)
@@ -9,16 +9,36 @@ def sparse_reg(Theta, char_sizes=None, row_norms=None, valid_single=None, opts=N
 # opts: dictionary of options
 # avoid: coefficient vectors to be orthogonal to
 
-    opt_defaults = {'threshold': "'pareto'", 'brute_force': True, 'delta': 1e-10, 'epsilon': 1e-2, 'gamma': 2, 'verbose': False, 'n_terms': -1}
+    opt_defaults = {'threshold': "'pareto'", 'brute_force': True, 'delta': 1e-10, 'epsilon': 1e-2, 'gamma': 2, 'verbose': False, 'n_terms': -1, 'char_sizes': None, 'row_norms': None, 'valid_single': None, 'avoid': [], 'subinds': None}
 
     # read options
     if opts is None:
-        opts = dict() # to simplify conditional logic
+        opts = dict()
     for opt in opt_defaults.keys():
-        opt_value = opts[opt] if (opt in opts) else opt_defaults[opt]
-        exec(f'{opt}={opt_value}', globals())
+        if opt not in opts:
+            opts[opt] = opt_defaults[opt]
+    
+    # ugly code because apparently there's no consistent programmatic way to do this
+    threshold = opts['threshold']; brute_force = opts['brute_force']; delta = opts['delta']
+    epsilon = opts['epsilon']; gamma = opts['gamma']; verbose = opts['verbose']; n_terms = opts['n_terms'] 
+    char_sizes = opts['char_sizes']; row_norms = opts['row_norms']; valid_single = opts['valid_single']
+    avoid = opts['avoid']; subinds = opts['subinds']
+        
     
     Theta = np.copy(Theta) # avoid bugs where array is modified in place
+    if subinds is not None:
+        if subinds == []: # no inds allowed at all
+            return None, np.inf, None, np.inf
+        Theta = Theta[:, subinds]
+        if char_sizes is not None:
+            char_sizes = np.array(char_sizes)
+            char_sizes = char_sizes[subinds]
+        if row_norms is not None:
+            row_norms = np.array(row_norms)
+            row_norms = row_norms[subinds]
+        if valid_single is not None:
+            valid_single = np.array(valid_single)
+            valid_single = valid_single[subinds]
         
     if row_norms is not None:
         for row in range(len(row_norms)):
@@ -56,16 +76,19 @@ def sparse_reg(Theta, char_sizes=None, row_norms=None, valid_single=None, opts=N
         #print("Sigma_shrink:", Sigma_shrink)
         print("V:", V)
         print("scores:", np.log(Sigma)) # np.log(Sigmas)/np.min(Sigmas)
-    lambd = np.linalg.norm(Theta@Xi)
+    lambd = np.linalg.norm(Theta@Xi)/Thetanm
     if verbose:
         print('lambda:', lambd)
     # find best one-term model as well
     nrm = np.zeros(w)
     for term in range(w):
-        nrm[term] = np.linalg.norm(Theta[:, term]) / valid_single[term]
-        lambda1, ind_single = min(nrm), np.argmin(nrm)
+        nrm[term] = np.linalg.norm(Theta[:, term]) / (Thetanm*valid_single[term])
+        lambda1, best_term = min(nrm), np.argmin(nrm)
         if verbose:
             print(f'nrm[{term}]:', nrm[term])
+    if w==1: # no regression to run
+        return None, np.inf, best_term, lambda1
+    
     smallinds = np.zeros(w)
     margins = np.zeros(w) # increases in residual per time step
     lambdas = np.zeros(w)
@@ -89,7 +112,7 @@ def sparse_reg(Theta, char_sizes=None, row_norms=None, valid_single=None, opts=N
                     _, _, V = np.linalg.svd(Theta[:, smallinds_copy==0], full_matrices=True)
                     V = V.transpose()
                     Xi_copy[smallinds_copy==0] = V[:, -1]
-                    res_inc[p_ind] = np.linalg.norm(Theta@Xi_copy)/lambd
+                    res_inc[p_ind] = np.linalg.norm(Theta@Xi_copy)/Thetanm/lambd
             else:
                 col = Theta[:, p_ind]
                 # project out other columns
@@ -114,7 +137,7 @@ def sparse_reg(Theta, char_sizes=None, row_norms=None, valid_single=None, opts=N
                 _, _, V = np.linalg.svd(Theta[:, smallinds==0], full_matrices=True)
                 V = V.transpose()
                 Xi[smallinds==0] = V[:, -1]
-                lambd = np.linalg.norm(Theta@Xi)
+                lambd = np.linalg.norm(Theta@Xi)/Thetanm
                 lambdas[i+1] = lambd
                 if sum(smallinds==0)==1:
                         margins[-1] = np.inf
@@ -139,7 +162,7 @@ def sparse_reg(Theta, char_sizes=None, row_norms=None, valid_single=None, opts=N
             V = V.transpose()
             Xi[smallinds==0] = V[:, -1]
             lambda_old = lambd
-            lambd = np.linalg.norm(Theta@Xi)
+            lambd = np.linalg.norm(Theta@Xi)/Thetanm
             lambdas[i+1] = lambd
             margin = lambd/lambda_old
             if verbose:
@@ -161,11 +184,11 @@ def sparse_reg(Theta, char_sizes=None, row_norms=None, valid_single=None, opts=N
         I_mar = max(np.argmax(lambdas>delta)-1, I_mar)
         stopping_point = I_mar-1
         Xi = Xis[I_mar]; #stopping_point
-        lambd = np.linalg.norm(Theta@Xi);
+        lambd = np.linalg.norm(Theta@Xi)/Thetanm
     elif threshold=="multiplicative":
         I_sm = np.argmax((lambdas>epsilon*lambda1) & (lambdas>delta))-1
         Xi = Xis[I_sm] #stopping_point
-        lambd = np.linalg.norm(Theta@Xi)
+        lambd = np.linalg.norm(Theta@Xi)/Thetanm
     else:
         if n_terms>1: ### Don't think this line does anything functionally but I also don't really use this
             I_mar = sum(margins>0)-n_terms
@@ -176,7 +199,7 @@ def sparse_reg(Theta, char_sizes=None, row_norms=None, valid_single=None, opts=N
             print(margins==0)
             print("I_mar:", I_mar)
         Xi = Xis[I_mar] #stopping_point
-        lambd = np.linalg.norm(Theta@Xi);
+        lambd = np.linalg.norm(Theta@Xi)/Thetanm
 
     if verbose:
         print("Xis:", Xis)
@@ -184,7 +207,6 @@ def sparse_reg(Theta, char_sizes=None, row_norms=None, valid_single=None, opts=N
     if verbose:
         print("lambda:", lambd, "lambda1:", lambda1)
         print("lambdas:", lambdas)
-    best_term = ind_single
     #print("Xi1:", Xi)
     if char_sizes is not None:
         Xi = Xi / char_sizes # renormalize by char. size
@@ -201,8 +223,9 @@ def sparse_reg(Theta, char_sizes=None, row_norms=None, valid_single=None, opts=N
     Xi = Xi/max(Xi) # make largest coeff 1
     # make residuals relative to original norm(Theta)*norm(Xi)
     nm = np.linalg.norm(Xi)
-    lambd /= (nm*Thetanm)
-    lambda1 /= Thetanm
+    #lambd /= (nm*Thetanm)
+    #lambd /= Thetanm
+    #lambda1 /= Thetanm
     
     return Xi, lambd, best_term, lambda1
 
@@ -227,5 +250,6 @@ def regress(Theta, col_numbers): # regression on a fixed set of terms
     Xi = Xi/max(Xi) # make largest coeff 1
     # make residuals relative to original norm(Theta)*norm(Xi)
     nm = np.linalg.norm(Xi)
-    lambd /= (nm*Thetanm)
+    #lambd /= (nm*Thetanm)
+    lambd /= Thetanm
     return Xi, lambd

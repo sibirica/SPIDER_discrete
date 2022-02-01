@@ -16,7 +16,6 @@ class CompPair(object):
         
     def __post_init__(self):
         self.complexity = self.torder + self.xorder
-        
     def __repr__(self):
         return f'({self.torder}, {self.xorder})'
 
@@ -230,7 +229,7 @@ class LibraryTensor(object): # unindexed version of LibraryTerm
 
 def labels_to_index_list(labels, n): # n = number of observables
     index_list = [list() for i in range(2*n)]
-    for key in labels.keys():
+    for key in sorted(labels.keys()):
         for a in labels[key]:
             index_list[a].append(key)
     return index_list
@@ -318,7 +317,10 @@ class LibraryTerm(object):
         if isinstance(other, LibraryTerm):
             if self.rank < other.rank:
                 return other.__mul__(self)
-            shift = max(self.labels.keys())
+            if len(self.labels.keys()) > 0:
+                shift = max(self.labels.keys())
+            else:
+                shift = 0
             if other.rank==1:
                 a, b = self.increment_indices(1), other.increment_indices(shift+1)
             else:
@@ -383,10 +385,6 @@ class LibraryTerm(object):
     def increment_indices(self, inc):
         index_list = [[index+inc for index in li] for li in self.index_list]
         return LibraryTerm(LibraryTensor(self.observable_list), index_list=index_list)
-        #self.index_list = [[index+inc for index in li] for li in self.index_list]
-        #self.labels = {k+inc: v for k, v in self.labels.items()}
-        #self.der_index_list = self.index_list[0::2]
-        #self.obs_index_list = self.index_list[1::2]
     
     def dt(self):
         terms = []
@@ -404,7 +402,7 @@ class LibraryTerm(object):
         for i, obs in enumerate(self.observable_list):
             new_obs = obs.dx()
             new_index_list = copy.deepcopy(self.index_list)
-            new_index_list[2*i].append(0)
+            new_index_list[2*i].insert(0, 0)
             lt = LibraryTerm(LibraryTensor(self.observable_list[:i]+[new_obs]+self.observable_list[i+1:]),
                              index_list=new_index_list)
             if lt.rank == 0:
@@ -662,7 +660,7 @@ class Equation(object): # can represent equation (expression = 0) OR expression
         self.term_list = [e[0] for e in sorted_content]
         self.coeffs = [e[1] for e in sorted_content]
         self.rank = term_list[0].rank
-        # might want to define complexity function
+        self.complexity = sum([term.complexity for term in term_list]) # another choice is simply the number of terms
       
     def __add__(self, other):
         if isinstance(other, Equation):
@@ -698,12 +696,12 @@ class Equation(object): # can represent equation (expression = 0) OR expression
     def dt(self):
         components = [coeff*term.dt() for term, coeff in zip(self.term_list, self.coeffs)
                       if not isinstance(term, ConstantTerm)]
-        return reduce(add, components)
+        return reduce(add, components).canonicalize()
         
     def dx(self):
         components = [coeff*term.dx() for term, coeff in zip(self.term_list, self.coeffs)
                       if not isinstance(term, ConstantTerm)]
-        return reduce(add, components)
+        return reduce(add, components).canonicalize()
     
     def canonicalize(self):
         if len(self.term_list) == 0:
@@ -721,14 +719,24 @@ class Equation(object): # can represent equation (expression = 0) OR expression
             coeffs.append(reps)
         return Equation(term_list, coeffs)
     
-    def eliminate_complex_term(self):
+    def eliminate_complex_term(self, return_normalization=False):
+        if len(self.term_list)==1:
+            return self.term_list[0], None
         lhs = max(self.term_list, key=lambda t:t.complexity)
         lhs_ind = self.term_list.index(lhs)
         new_term_list = self.term_list[:lhs_ind]+self.term_list[lhs_ind+1:]
         new_coeffs = self.coeffs[:lhs_ind]+self.coeffs[lhs_ind+1:]
-        new_coeffs = [c/self.coeffs[lhs_ind] for c in new_coeffs]
+        new_coeffs = [-c/self.coeffs[lhs_ind] for c in new_coeffs]
         rhs = Equation(new_term_list, new_coeffs)
+        if return_normalization:
+            return lhs, rhs, self.coeffs[lhs_ind]
         return lhs, rhs
+    
+    def to_term(self):
+        if len(self.term_list) != 1:
+            raise ValueError("Equation contains more than one distinct term")
+        else:
+            return self.term_list[0]
     
 class TermSum(Equation):
     def __init__(self, term_list): # terms are LibraryTerms, coeffs are real numbers

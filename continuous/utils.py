@@ -66,7 +66,7 @@ def construct_from_string(input_str, type_str, obs_dict):
                 coeff = 1
             coeffs.append(float(coeff))
             term_list.append(construct_from_string(term, "LibraryTerm", obs_dict).canonicalize())
-        return Equation(term_list, coeffs)#.canonicalize()
+        return Equation(term_list, coeffs)
     else:
         raise ValueError(type_str + " is not a valid option.")
         

@@ -19,3 +19,4 @@ pip-delete-this-directory.txt
 *.mp4
 *.mat
 /data
+continuous/NSE2D
