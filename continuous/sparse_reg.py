@@ -1,6 +1,7 @@
 import numpy as np
 
-def sparse_reg(Theta, opts=None):
+def sparse_reg(Theta, opts=None, threshold='pareto', brute_force=True, delta=1e-10, epsilon=1e-2, gamma=2,
+               verbose=False, n_terms=-1, char_sizes=None, row_norms=None, valid_single=None, avoid=[], subinds=None):
 # compute sparse regression on Theta * Xi = 0
 # Theta: matrix of integrated terms
 # char_sizes: vector of characteristic term sizes (per column)
@@ -8,22 +9,7 @@ def sparse_reg(Theta, opts=None):
 # valid_single: vector of 1s/0s (valid single term model/not)
 # opts: dictionary of options
 # avoid: coefficient vectors to be orthogonal to
-
-    opt_defaults = {'threshold': "'pareto'", 'brute_force': True, 'delta': 1e-10, 'epsilon': 1e-2, 'gamma': 2, 'verbose': False, 'n_terms': -1, 'char_sizes': None, 'row_norms': None, 'valid_single': None, 'avoid': [], 'subinds': None}
-
-    # read options
-    if opts is None:
-        opts = dict()
-    for opt in opt_defaults.keys():
-        if opt not in opts:
-            opts[opt] = opt_defaults[opt]
-    
-    # ugly code because apparently there's no consistent programmatic way to do this
-    threshold = opts['threshold']; brute_force = opts['brute_force']; delta = opts['delta']
-    epsilon = opts['epsilon']; gamma = opts['gamma']; verbose = opts['verbose']; n_terms = opts['n_terms'] 
-    char_sizes = opts['char_sizes']; row_norms = opts['row_norms']; valid_single = opts['valid_single']
-    avoid = opts['avoid']; subinds = opts['subinds']
-        
+# and a lot more not described above
     
     Theta = np.copy(Theta) # avoid bugs where array is modified in place
     if subinds is not None:
@@ -193,7 +179,7 @@ def sparse_reg(Theta, opts=None):
         if n_terms>1: ### Don't think this line does anything functionally but I also don't really use this
             I_mar = sum(margins>0)-n_terms
         lambdas[0] = lambdas[1] ### DUCT TAPE since I don't know what's going on (basically first lambda is big)
-        I_mar = max(np.argmax(lambdas>delta), np.argmax(margins==0))-1
+        I_mar = max(np.argmax(lambdas>delta)-1, np.argmax(margins>gamma))
         if verbose:
             print(lambdas>delta)
             print(margins==0)

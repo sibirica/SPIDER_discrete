@@ -2,29 +2,28 @@ from library import *
 from sparse_reg import *
 from timeit import default_timer as timer
 
-def identify_equations(Q, reg_opts, library, observables, threshold=1e-5, 
-                       max_complexity=None, max_equations=999, timed=True, excluded_terms=[]):
+def identify_equations(Q, reg_opts, library, observables, threshold=1e-5, min_complexity=1,
+                       max_complexity=None, max_equations=999, timed=True, excluded_terms=set()):
     if timed:
         start = timer()
     obs_terms = [obs_to_term(obs) for obs in observables]
     equations = []
     lambdas = []
     derived_eqns = {}
+    # this can be eliminated by keeping track of two different max_complexities in args
+    lib_max_complexity = max([term.complexity for term in library]) # generate list of derived terms up to here
     if max_complexity is None:
-        allowed_terms = library
-        max_complexity = max([term.complexity for term in library])
-    for complexity in range(1, max_complexity+1):
-        more_models = True
-        while more_models:
+        max_complexity = lib_max_complexity
+    for complexity in range(min_complexity, max_complexity+1):
+        while len(equations)<max_equations:
             selection = [(term, i) for (i, term) in enumerate(library) if term.complexity<=complexity
                         and term not in excluded_terms]
             sublibrary = [s[0] for s in selection]
             inds = [s[1] for s in selection]
             reg_opts['subinds'] = inds
-            #subQ = Q[:, inds]
             ### identify model
             eq, res = make_equation_from_Xi(*sparse_reg(
-                                            Q, opts=reg_opts), sublibrary)
+                                            Q, **reg_opts), sublibrary)
             if res > threshold:
                 break
             equations.append(eq)
@@ -36,12 +35,30 @@ def identify_equations(Q, reg_opts, library, observables, threshold=1e-5,
             print(f'Identified model: {eq} (order {complexity}, residual {res:.2e})')
             ### eliminate terms via infer_equations
             derived_eqns[str(eq)] = []
-            for lhs, rhs in infer_equations(eq, obs_terms, max_complexity):
-                excluded_terms.append(lhs)
+            for lhs, rhs in infer_equations(eq, obs_terms, lib_max_complexity):
+                excluded_terms.add(lhs)
                 if rhs is None:
                     derived_eqns[str(eq)].append(Equation([lhs], [1]))
                 else:
                     derived_eqns[str(eq)].append(-1*TermSum([lhs])+rhs)
+    return equations, lambdas, derived_eqns, excluded_terms
+
+def interleave_identify(Qs, reg_opts_list, libraries, observables, threshold=1e-5, min_complexity=1,
+                        max_complexity=None, max_equations=999, timed=True, excluded_terms=set()):
+    equations = []
+    lambdas = []
+    derived_eqns = {}
+    if max_complexity is None:
+        max_complexity = max([term.complexity for library in libraries for term in library]) 
+    for complexity in range(min_complexity, max_complexity+1):
+        for Q, reg_opts, library in zip(Qs, reg_opts_list, libraries):
+            eqs_i, lbds_i, der_eqns_i, exc_terms_i = identify_equations(Q, reg_opts, library,
+                    observables, threshold=threshold, min_complexity=complexity, max_complexity=complexity,
+                    max_equations=max_equations, timed=timed, excluded_terms=excluded_terms)
+            equations += eqs_i
+            lambdas += lbds_i
+            derived_eqns.update(der_eqns_i)
+            excluded_terms.update(exc_terms_i)
     return equations, lambdas, derived_eqns, excluded_terms
 
 def make_equation_from_Xi(Xi, lambd, best_term, lambda1, sublibrary):

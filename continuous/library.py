@@ -313,6 +313,9 @@ class LibraryTerm(object):
         repstr = [label_repr(obs, ind1, ind2)+' * ' for (obs, ind1, ind2) in zip(self.observable_list, num_to_let(self.der_index_list), num_to_let(self.obs_index_list))]
         return reduce(add, repstr)[:-3]
     
+    def __hash__(self): # it's nice to be able to use LibraryTerms in sets or dicts
+        return hash(self.__repr__())
+    
     def __mul__(self, other):
         if isinstance(other, LibraryTerm):
             if self.rank < other.rank:
@@ -367,8 +370,8 @@ class LibraryTerm(object):
     
     def canonicalize(self): # return canonical representation and set is_canonical flag (used to determine if valid)
         str_canon = self.structure_canonicalize()
-        if str(str_canon) in self.canon_dict:
-            canon = self.canon_dict[str(str_canon)]
+        if str_canon in self.canon_dict:
+            canon = self.canon_dict[str_canon]
             self.is_canonical = (self==canon)
             return canon
         alternative_canons = []
@@ -378,7 +381,7 @@ class LibraryTerm(object):
             alternative_canons.append(canon_term)
         canon = min(alternative_canons, key=str)
         for alt_canon in alternative_canons:
-            self.canon_dict[str(alt_canon)] = canon
+            self.canon_dict[alt_canon] = canon
         self.is_canonical = (self==canon)
         return canon
     
