@@ -3,15 +3,13 @@ from sparse_reg import *
 from timeit import default_timer as timer
 
 def identify_equations(Q, reg_opts, library, observables, threshold=1e-5, min_complexity=1,
-                       max_complexity=None, max_equations=999, timed=True, excluded_terms=None):
+                       max_complexity=None, max_equations=999, timed=True, excluded_terms=set()):
     if timed:
         start = timer()
     obs_terms = [obs_to_term(obs) for obs in observables]
     equations = []
     lambdas = []
     derived_eqns = {}
-    if excluded_terms is None:
-        excluded_terms = set()
     # this can be eliminated by keeping track of two different max_complexities in args
     lib_max_complexity = max([term.complexity for term in library]) # generate list of derived terms up to here
     if max_complexity is None:
@@ -46,12 +44,10 @@ def identify_equations(Q, reg_opts, library, observables, threshold=1e-5, min_co
     return equations, lambdas, derived_eqns, excluded_terms
 
 def interleave_identify(Qs, reg_opts_list, libraries, observables, threshold=1e-5, min_complexity=1,
-                        max_complexity=None, max_equations=999, timed=True, excluded_terms=None):
+                        max_complexity=None, max_equations=999, timed=True, excluded_terms=set()):
     equations = []
     lambdas = []
     derived_eqns = {}
-    if excluded_terms is None:
-        excluded_terms = set()
     if max_complexity is None:
         max_complexity = max([term.complexity for library in libraries for term in library]) 
     for complexity in range(min_complexity, max_complexity+1):
