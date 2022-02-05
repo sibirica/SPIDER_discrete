@@ -98,5 +98,4 @@ def term_plus_inds(string, obs_dict):
 def resample_grid(data, grid_coords, new_coords, axis, order=3):
     interp_data = np.array(data)
     f = interp1d(grid_coords, data, kind=order, axis=axis, assume_sorted=True) 
-    interp_data = f(new_coords)
-    return interp_data
+    return f(new_coords)
