@@ -1,5 +1,7 @@
 import numpy as np
+from scipy.interpolate import interp1d
 from library import *
+from itertools import product
 
 def save(filename, *args):
     with open(filename, 'wb') as f:
@@ -92,3 +94,9 @@ def term_plus_inds(string, obs_dict):
             inds1.append(let_to_num_dict[token[-1]])
     obs = LibraryPrimitive(DerivativeOrder(torder, xorder), obs_nm)
     return obs, inds1, inds2
+
+def resample_grid(data, grid_coords, new_coords, axis, order=3):
+    interp_data = np.array(data)
+    f = interp1d(grid_coords, data, kind=order, axis=axis, assume_sorted=True) 
+    interp_data = f(new_coords)
+    return interp_data
