@@ -166,7 +166,8 @@ def sparse_reg(Theta, opts=None, threshold='pareto', brute_force=True, delta=1e-
     #lambda1 /= h**0.5
     if -min(Xi)>max(Xi): # ensure vectors are "positive"
         Xi = -Xi
-    Xi = Xi/max(Xi) # make largest coeff 1
+    if max(Xi) > 0:
+        Xi = Xi/max(Xi) # make largest coeff 1
     
     return Xi, lambd, best_term, lambda1
 
