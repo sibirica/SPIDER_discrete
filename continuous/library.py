@@ -79,7 +79,6 @@ class LibraryPrimitive(object):
     dorder: DerivativeOrder
     observable: Observable
     rank: int = field(init=False)
-    simple: bool = True
     complexity: int = field(init=False)
     
     def __post_init__(self):
@@ -135,8 +134,7 @@ class LibraryPrimitive(object):
 class IndexedPrimitive(LibraryPrimitive):
     dim_to_let = {0: 'x', 1: 'y', 2: 'z'}
     
-    def __init__(self, prim, space_orders=None, obs_dim=None, newords=None): #parity = 1
-        self.simple = True
+    def __init__(self, prim, space_orders=None, obs_dim=None, newords=None):
         self.dorder = prim.dorder
         self.observable = prim.observable
         self.rank = prim.rank
@@ -149,7 +147,6 @@ class IndexedPrimitive(LibraryPrimitive):
             self.obs_dim = prim.obs_dim
         self.ndims = len(self.dimorders)
         self.nderivs = sum(self.dimorders)
-        #self.parity = parity
         
     def __repr__(self):
         torder = self.dimorders[-1]
@@ -174,11 +171,6 @@ class IndexedPrimitive(LibraryPrimitive):
         else:
             let = self.dim_to_let[self.obs_dim]
             dimstring = f"_{let}"
-        #if self.parity == -1:
-        #    pstring = ""
-        #else:
-        #    pstring = "-"
-        #return f'{pstring}{tstring}{xstring}{self.observable}{dimstring}'
         return f'{tstring}{xstring}{self.observable}{dimstring}'
     
     def __eq__(self, other):
@@ -203,11 +195,9 @@ class IndexedPrimitive(LibraryPrimitive):
     
 class LibraryTensor(object): # unindexed version of LibraryTerm
     def __init__(self, observables):
-        if isinstance(observables, LibraryPrimitive):  # constructor for library terms consisting of an observable with some derivatives
-            self.simple = True
+        if isinstance(observables, LibraryPrimitive):  # constructor for library terms consisting of a primitive with some derivatives
             self.observable_list = [observables]
         else:  # constructor for library terms consisting of a product
-            self.simple = False
             self.observable_list = observables
         self.rank = sum([obs.rank for obs in self.observable_list])
         self.complexity = sum([obs.complexity for obs in self.observable_list])
@@ -413,8 +403,6 @@ class LibraryTerm(object):
             lt = lt.canonicalize() # structure changes after derivative so we must recanonicalize
             terms.append(lt)
         ts = TermSum(terms)
-        #print(self.observable_list, "->", [term.observable_list for term in ts.term_list])
-        #print(self.index_list, "->", [term.index_list for term in ts.term_list])
         return ts.canonicalize()
     
 def get_isomorphic_terms(obs_list, start_order=None):
@@ -436,7 +424,6 @@ class IndexedTerm(object): # LibraryTerm with i's mapped to x/y/z
         if observable_list is None: # normal "from scratch" constructor
             self.rank = libterm.rank
             self.complexity = libterm.complexity
-            #self.obs_dims = obs_dims
             nterms = len(libterm.observable_list)
             self.observable_list = libterm.observable_list.copy()
             for i, obs, sp_ord, obs_dim in zip(range(nterms), libterm.observable_list, space_orders, obs_dims):
@@ -444,7 +431,6 @@ class IndexedTerm(object): # LibraryTerm with i's mapped to x/y/z
             self.ndims = len(space_orders[0])+1
             self.nderivs = np.max([p.nderivs for p in self.observable_list])
         else: # direct constructor from observable list
-            #print(observable_list)
             if len(observable_list)>0: # if term is not simply equal to 1
                 self.rank = observable_list[0].rank
                 self.ndims = observable_list[0].ndims
@@ -461,14 +447,7 @@ class IndexedTerm(object): # LibraryTerm with i's mapped to x/y/z
         repstr = [str(obs)+' * ' for obs in self.observable_list]
         return reduce(add, repstr)[:-3]
     
-    def __mul__(self, other):
-        if isinstance(other, IndexedTerm):
-            return IndexedTerm(observable_list=self.observable_list+other.observable_list)
-        else:
-            return IndexedTerm(observable_list=self.observable_list+[other])
-    
     def drop(self, obs):
-        #print(self.observable_list)
         obs_list_copy = self.observable_list.copy()
         if len(obs_list_copy)>1:
             obs_list_copy.remove(obs)
@@ -524,33 +503,7 @@ def compress(labels):
         else:
             skip = False
     return copy
-                        
-def raw_library_tensors(observables, obs_orders, nt, nx, max_order=DerivativeOrder(inf, inf), zeroidx=0):
-    #print(obs_orders, nt, nx, max_order)
-    while obs_orders[zeroidx]==0:
-        zeroidx += 1
-        if zeroidx==len(observables):
-            return
-    if sum(obs_orders)==1:
-        i = obs_orders.index(1)
-        do = DerivativeOrder(nt, nx)
-        if max_order>=do:
-            prim = LibraryPrimitive(do, observables[i])
-            yield LibraryTensor(prim)
-        return
-    for i in range(nt+1):
-        for j in range(nx+1):
-            if max_order>=DerivativeOrder(i, j):
-                do = DerivativeOrder(i, j) 
-                prim = LibraryPrimitive(do, observables[zeroidx]) 
-                term1 = LibraryTensor(prim)
-                new_orders = list(obs_orders)
-                new_orders[zeroidx] -= 1
-                if obs_orders[zeroidx]==1: # reset max_order since we are going to next terms
-                    do = DerivativeOrder(inf, inf)
-                for term2 in raw_library_tensors(observables, new_orders, nt-i, nx-j, max_order=do):
-                    yield term1*term2
-                        
+                           
 # make a dictionary of how paired indices are placed
 def place_pairs(*rank_array, min_ind2=0, curr_ind=1, start=0, answer_dict=dict()):
     while rank_array[start]<=0:
@@ -620,6 +573,33 @@ def test_valid_label(output_dict, obs_list):
                     return False
     return True
 
+def raw_library_tensors(observables, obs_orders, nt, nx, max_order=DerivativeOrder(inf, inf), zeroidx=0):
+    #print(obs_orders, nt, nx, max_order)
+    while obs_orders[zeroidx]==0:
+        zeroidx += 1
+        if zeroidx==len(observables):
+            yield 1
+            return
+    if sum(obs_orders)==1:
+        i = obs_orders.index(1)
+        do = DerivativeOrder(nt, nx)
+        if max_order>=do:
+            prim = LibraryPrimitive(do, observables[i])
+            yield LibraryTensor(prim)
+        return
+    for i in range(nt+1):
+        for j in range(nx+1):
+            do = DerivativeOrder(i, j)
+            if max_order>=do:
+                prim = LibraryPrimitive(do, observables[zeroidx]) 
+                term1 = LibraryTensor(prim)
+                new_orders = list(obs_orders)
+                new_orders[zeroidx] -= 1
+                if obs_orders[zeroidx]==1: # reset max_order since we are going to next terms
+                    do = DerivativeOrder(inf, inf)
+                for term2 in raw_library_tensors(observables, new_orders, nt-i, nx-j, max_order=do):
+                    yield term1*term2
+
 rho = Observable('rho', 0)
 v = Observable('v', 1)
 def generate_terms_to(order, observables=[rho, v], max_observables=999):
@@ -640,7 +620,7 @@ def generate_terms_to(order, observables=[rho, v], max_observables=999):
                     lt = LibraryTerm(tensor, label)
                     canon = lt.canonicalize()
                     if lt.is_canonical:
-                        libterms.append(LibraryTerm(tensor, label))
+                        libterms.append(lt)
     return libterms
 
 def partition(n,k):

@@ -7,7 +7,7 @@ range = 0:1:nt-1;
 dt = 0.01;
 T = range*dt;
 U = zeros(nx, ny, nz, nt);
-V = U; W = U; %P = U;
+V = U; W = U; P = U;
 for i=range
     disp(i)
     rstr = sprintf('u0.%02d0.nc',i);
@@ -15,7 +15,8 @@ for i=range
     U(:, :, :, i+1) = ncread(rstr,'Velocity_X');
     V(:, :, :, i+1) = ncread(rstr,'Velocity_Y');
     W(:, :, :, i+1) = ncread(rstr,'Velocity_Z');
-    %P(:, :, :, i+1) = ncread(pstr,'Component_0');
+    P(:, :, :, i+1) = ncread(pstr,'Component_0');
 end
-%save('channelflow_l2.mat', 'U', 'V', 'W', 'P', 'X', 'Y', 'Z', 'T', '-v7.3')
-save('channelflow_l2.mat', 'U', 'V', 'W', 'X', 'Y', 'Z', 'T', '-v7.3')
+disp(size(P))
+save('channelflow.mat', 'U', 'V', 'W', 'P', 'X', 'Y', 'Z', 'T', '-v7.3')
+%save('channelflow_l2.mat', 'U', 'V', 'W', 'X', 'Y', 'Z', 'T', '-v7.3')
