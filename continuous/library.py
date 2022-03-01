@@ -590,8 +590,6 @@ def test_valid_label(output_dict, obs_list):
     return True
 
 def raw_library_tensors(observables, obs_orders, nt, nx, max_order=DerivativeOrder(inf, inf), zeroidx=0):
-    # Philosophy: when partition has been made, always put down all of the observables but allow
-    # derivatives to be missed UNLESS we are on the last observable
     #print(obs_orders, nt, nx, max_order)
     while obs_orders[zeroidx]==0:
         zeroidx += 1
@@ -642,7 +640,7 @@ def generate_terms_to(order, observables=[rho, v], max_observables=999):
     return libterms
 
 def partition(n,k):
-    '''n is the integer to partition, k is the length of partitions, l is the min partition element size'''
+    '''n is the integer to partition up to, k is the length of partitions'''
     if k < 1:
         return
     if k == 1:

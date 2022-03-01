@@ -142,7 +142,6 @@ class CoarseGrainedPrimitive(object): # represents rho[product of obs_list]
     #    else:
     #        raise ValueError(f"Cannot multiply {type(self)}, {type(other)}")
     
-    # check!
     def index_canon(self, inds):
         if len(inds) == 0:
             return inds
@@ -158,7 +157,7 @@ class CoarseGrainedPrimitive(object): # represents rho[product of obs_list]
             start_ind += reps
         return new_inds
     
-    def is_index_canon(self, inds):
+    def is_index_canon(self, inds): # can just check that inds == index_canon(ind), but this is more efficient 
         if len(inds) == 0:
             return inds
         reps = 1
@@ -325,7 +324,6 @@ def index_list_to_labels(index_list):
                 labels[ind] = [i]
     return labels
 
-# check!
 def labels_to_ordered_index_list(labels, ks):
     n = len(ks)
     index_list = [[None]*ks[i] for i in range(n)]
@@ -334,7 +332,6 @@ def labels_to_ordered_index_list(labels, ks):
             index_list[a][b] = key
     return index_list
 
-# check!()
 def ordered_index_list_to_labels(index_list):
     labels = dict()
     for i, li in enumerate(index_list):
@@ -370,8 +367,7 @@ def is_canonical(indices):
             return False
     return True
 
-# D[1 2] [0 2 1] * D[3 4] [3 4]. label: [(bin1, order1), (bin2, order2)]. treat index_list as ordered.
-### (2) SIGNIFICANT CHANGES ###
+# each label maps to [(bin1, order1), (bin2, order2)], treat sublists of index_list as ordered.
 # note: be careful not to modify index_list or labels without remaking because the references are reused
 class LibraryTerm(object): 
     canon_dict = dict() # used to store ambiguous canonicalizations (which shouldn't exist for less than 6 indices)
@@ -457,13 +453,12 @@ class LibraryTerm(object):
         sorted_libtens = LibraryTensor(sorted_obs)
         return LibraryTerm(sorted_libtens, index_list=sorted_ind)
     
-    # check!
     def index_canonicalize(self):
         #inc = 0
         #if len(self.labels[0])==2: # if multiple i's, need to increment all indices
         #    inc = 1
         subs_dict = canonicalize_indices(flatten(self.index_list))
-        # (a) do index substitutions, (b) within 
+        # (a) do index substitutions, (b) sort within sublists 
         new_index_list = [[subs_dict[i] for i in li] for li in self.index_list]
         for li in new_index_list[::2]: # sort all derivative indices
             li = sorted(li)
@@ -729,8 +724,6 @@ def yield_legal_tuples(bounds):
 # check!
 #def raw_library_tensors(observables, obs_orders, nt, nx, max_order=None, zeroidx=0):
 def raw_library_tensors(observables, orders, max_order=None, zeroidx=0):
-    # Philosophy: when partition has been made, always put down all of the observables but allow
-    # derivatives to be missed UNLESS we are on the last observable
     # basically: iteratively take any possible subset from [obs_orders; nt; nx] 
     # as long as it's lexicographically less than previous order; take at least one of first observable
     
@@ -742,12 +735,13 @@ def raw_library_tensors(observables, orders, max_order=None, zeroidx=0):
             yield 1
             return
     #orders = obs_orders + [nt, nx]
+    #print("ORDERS: ", orders)
     orders[zeroidx] -= 1 # always put in at least one of these to maintain lexicographic order
 
     for tup in yield_legal_tuples(orders):
-        #print(tup)
         orders_copy = orders.copy()
         popped_orders = list(tup)
+        #print("Popped: ", popped_orders)
         for i in range(len(orders)):
             orders_copy[i] -= popped_orders[i]
         if sum(orders_copy[:-2])==0 and sum(orders_copy[-2:])>0: # all observables popped but derivatives remain
@@ -778,15 +772,14 @@ def generate_terms_to(order, observables=[rho, v], max_observables=999):
     part = partition(N, K+2) # K observables + 2 derivative dimensions
     # not a valid term if no observables or max exceeded
     for part in partition(N, K+2):
-        #print(part)
         if sum(part[:K])>0 and sum(part[:K])<=max_observables:
             #nt, nx = part[-2:]
             #obs_orders = part[:-2]
             #for tensor in raw_library_tensors(observables, obs_orders, nt, nx):
             #print("\n\n\n")
-            #print("Partition:", part)
+            print("Partition:", part)
             for tensor in raw_library_tensors(observables, list(part)):
-                #print("Tensor", tensor)
+                print("Tensor", tensor)
                 #print("List of labels", list_labels(tensor))
                 for label in list_labels(tensor):
                     #print("Label", label)
@@ -801,15 +794,15 @@ def generate_terms_to(order, observables=[rho, v], max_observables=999):
                             libterms.append(lt)
     return libterms
 
-# check!()
 def get_valid_reorderings(observables, obs_index_list):
-    if len(obs_index_list)==0:
+    if len(obs_index_list)==0: # don't think this actually happens, but just in case
         yield []
         return
-    unique_perms = []
     if len(obs_index_list[0])==0:
         for reorder in get_valid_reorderings(observables[1:], obs_index_list[1:]):
-            yield [[]] + reorder  
+            yield [[]] + reorder
+            return
+    unique_perms = []
     for perm in permutations(obs_index_list[0]):
         if perm not in unique_perms:
             unique_perms.append(perm)
@@ -817,7 +810,6 @@ def get_valid_reorderings(observables, obs_index_list):
                 for reorder in get_valid_reorderings(observables[1:], obs_index_list[1:]):
                     yield [list(perm)] + reorder 
 
-# check!()
 def get_library_terms(tensor, index_list):
     # distribute indexes in CGP according to all permutations that are canonical (with only those indices)
     der_index_list = index_list[0::2]
@@ -827,7 +819,7 @@ def get_library_terms(tensor, index_list):
         yield LibraryTerm(tensor, index_list=flatten(zip(der_index_list, perm_list)))
 
 def partition(n,k):
-    '''n is the integer to partition, k is the length of partitions, l is the min partition element size'''
+    '''n is the integer to partition up to, k is the length of partitions'''
     if k < 1:
         return
     if k == 1:
