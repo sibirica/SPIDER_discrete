@@ -33,9 +33,9 @@ class CompList(object):
     
     def special_bigger(self, other):
         if 0 in self.in_list and 0 not in other.in_list:
-            return True
-        elif 0 in other.in_list and 0 not in self.in_list:
             return False
+        elif 0 in other.in_list and 0 not in self.in_list:
+            return True
         else:
             return self>=other
 
@@ -333,6 +333,8 @@ class LibraryTerm(object):
     def structure_canonicalize(self):
         indexed_zip = zip(self.observable_list, self.der_index_list, self.obs_index_list)
         sorted_zip = sorted(indexed_zip, key=lambda x:x[0])
+        if sorted_zip == indexed_zip: # no changes necessary
+            return self
         sorted_obs = [e[0] for e in sorted_zip]
         sorted_ind1 = [e[1] for e in sorted_zip]
         sorted_ind2 = [e[2] for e in sorted_zip]
@@ -346,6 +348,8 @@ class LibraryTerm(object):
         #    inc = 1
         subs_dict = canonicalize_indices(flatten(self.index_list))
         new_index_list = [[subs_dict[i] for i in li] for li in self.index_list]
+        if all([li1==li2 for li1, li2 in zip(self.index_list, new_index_list)]): # no changes were made
+            return self
         return LibraryTerm(self.libtensor, index_list=new_index_list)
     
     def reorder(self, template):
@@ -364,15 +368,18 @@ class LibraryTerm(object):
             canon = self.canon_dict[str_canon]
             self.is_canonical = (self==canon)
             return canon
+        reorderings = []
         alternative_canons = []
         for template in get_isomorphic_terms(str_canon.observable_list):
             term = str_canon.reorder(template)
-            canon_term = term.index_canonicalize()
-            alternative_canons.append(canon_term)
+            if term not in reorderings: # exclude permutation-symmetric options
+                reorderings.append(term)
+                canon_term = term.index_canonicalize()
+                alternative_canons.append(canon_term)
         canon = min(alternative_canons, key=str)
         for alt_canon in alternative_canons:
             self.canon_dict[alt_canon] = canon
-        self.is_canonical = (self==canon)
+            self.is_canonical = (self==canon) 
         return canon
     
     def increment_indices(self, inc):
@@ -424,6 +431,7 @@ class IndexedTerm(object): # LibraryTerm with i's mapped to x/y/z
         if observable_list is None: # normal "from scratch" constructor
             self.rank = libterm.rank
             self.complexity = libterm.complexity
+            #self.obs_dims = obs_dims
             nterms = len(libterm.observable_list)
             self.observable_list = libterm.observable_list.copy()
             for i, obs, sp_ord, obs_dim in zip(range(nterms), libterm.observable_list, space_orders, obs_dims):
@@ -431,6 +439,7 @@ class IndexedTerm(object): # LibraryTerm with i's mapped to x/y/z
             self.ndims = len(space_orders[0])+1
             self.nderivs = np.max([p.nderivs for p in self.observable_list])
         else: # direct constructor from observable list
+            #print(observable_list)
             if len(observable_list)>0: # if term is not simply equal to 1
                 self.rank = observable_list[0].rank
                 self.ndims = observable_list[0].ndims
@@ -447,7 +456,14 @@ class IndexedTerm(object): # LibraryTerm with i's mapped to x/y/z
         repstr = [str(obs)+' * ' for obs in self.observable_list]
         return reduce(add, repstr)[:-3]
     
+    def __mul__(self, other):
+        if isinstance(other, IndexedTerm):
+            return IndexedTerm(observable_list=self.observable_list+other.observable_list)
+        else:
+            return IndexedTerm(observable_list=self.observable_list+[other])
+    
     def drop(self, obs):
+        #print(self.observable_list)
         obs_list_copy = self.observable_list.copy()
         if len(obs_list_copy)>1:
             obs_list_copy.remove(obs)
@@ -534,7 +550,7 @@ def place_indices(*rank_array):
             if rank_array[single_ind]>0:
                 copy_array = np.array(rank_array)
                 copy_array[single_ind] -= 1
-                yield from place_pairs(*copy_array, answer_dict={0: [single_ind]})
+                yield from place_pairs(*copy_array, answer_dict={0: (single_ind,)})
 
 def list_labels(tensor):
     rank_array = []
@@ -574,6 +590,8 @@ def test_valid_label(output_dict, obs_list):
     return True
 
 def raw_library_tensors(observables, obs_orders, nt, nx, max_order=DerivativeOrder(inf, inf), zeroidx=0):
+    # Philosophy: when partition has been made, always put down all of the observables but allow
+    # derivatives to be missed UNLESS we are on the last observable
     #print(obs_orders, nt, nx, max_order)
     while obs_orders[zeroidx]==0:
         zeroidx += 1
