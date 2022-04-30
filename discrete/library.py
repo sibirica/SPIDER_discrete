@@ -89,6 +89,9 @@ class CoarseGrainedPrimitive(object): # represents rho[product of obs_list]
         sumstr = reduce(add, repstr)[:-3]
         return f"rho[{sumstr}]"
     
+    def __hash__(self): # it's nice to be able to use CGP in sets or dicts
+        return hash(self.__repr__())
+    
     def index_str(self, obs_dims, coord=False):
         indexed_str = ""
         dim_ind = 0
@@ -544,7 +547,6 @@ def get_isomorphic_terms(obs_list, start_order=None):
         for perm in permutations(start_order[:reps]):
             yield list(perm)+new_list
 
-### (3) might need more changes? ###
 class IndexedTerm(object): # LibraryTerm with i's mapped to x/y/z
     def __init__(self, libterm=None, space_orders=None, nested_obs_dims=None, observable_list=None):
         if observable_list is None: # normal "from scratch" constructor
@@ -600,7 +602,7 @@ class ConstantTerm(IndexedTerm):
         self.complexity = 1
                 
     def __repr__(self):
-        return "1"
+        return "rho[1]"
     
 def label_repr(prim, ind1, ind2):
     torder = prim.dorder.torder
@@ -777,9 +779,9 @@ def generate_terms_to(order, observables=[rho, v], max_observables=999):
             #obs_orders = part[:-2]
             #for tensor in raw_library_tensors(observables, obs_orders, nt, nx):
             #print("\n\n\n")
-            print("Partition:", part)
+            #print("Partition:", part)
             for tensor in raw_library_tensors(observables, list(part)):
-                print("Tensor", tensor)
+                #print("Tensor", tensor)
                 #print("List of labels", list_labels(tensor))
                 for label in list_labels(tensor):
                     #print("Label", label)

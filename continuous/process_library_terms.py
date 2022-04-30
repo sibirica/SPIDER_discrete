@@ -3,6 +3,8 @@ from library import *
 from weight import *
 import copy
 from findiff import FinDiff
+from functools import reduce
+from operator import add
 
 class IntegrationDomain(object):
     def __init__(self, min_corner, max_corner):
@@ -36,7 +38,6 @@ class Weight(object):
             self.make_weight_objs()
         weights_eval = [weight.linspace(dim)[1] for (weight, dim) in zip(self.weight_objs, dims)]
         return self.scale*reduce(lambda x, y: np.tensordot(x, y, axes=0), weights_eval)
-        #return self.scale*weight_array(self.m, self.q, self.k, dims)
     
     def increment(self, dim): # return new weight with an extra derivative on the dim-th dimension
         knew = self.k.copy()
@@ -91,8 +92,6 @@ def int_by_parts(term, weight, dim=0):
 # at this point it's probably easier to just write the term out manually.
 def int_by_parts_dim(term, weight, dim):
     # find best term to base integration off of
-    #best_prim, next_best, third_best = None, None, None
-    #best_i, next_i, third_i = None, None, None
     best_prim, next_prim = None, None
     best_i, next_i = None, None
     for (i, prim) in enumerate(term.observable_list):
@@ -107,8 +106,6 @@ def int_by_parts_dim(term, weight, dim):
                 return  
         elif prim.nderivs == term.nderivs-1 and next_prim is None:
             next_i, next_prim = i, prim
-        #elif prim.nderivs == term.nderivs-2:
-        #    third_i, third_best = i, prim
     # check viability by cases
     newords = best_prim.dimorders.copy()
     newords[dim] -= 1
@@ -160,15 +157,17 @@ def diff(data, dorders, dxs=None):
     diff_operator = FinDiff(*diff_list, acc=acc)
     return diff_operator(data)
 
-# cache the derivatives through order 2? fill in code below for using cache
+# we want to cache all derivatives as they are computed, so we want to be able to encode+decode observable name and the derivative orders
 
 def encode(obs_name, dorders):
-    # e.g. dxx
-    return ""
+    # technically if you could go to 10th derivative you'd want to add commas between the numbers
+    if sum(dorders)==0:
+        return obs_name
+    return obs_name+"~"+reduce(add, [str(do) for do in dorders])
 
-def decode(data_name):
-    # return obs_name, dorders
-    return "", [0, 0, 0]
+def decode(data_name): # this function is not strictly necessary
+    str_list = data_name.split("~")
+    return str_list[0], [int(c) for c in str_list[1]]
 
 def eval_term(lt, weight, data_dict, domain, dxs, debug=False): #, dim
     # lt: LibraryTerm
@@ -189,7 +188,8 @@ def eval_term(lt, weight, data_dict, domain, dxs, debug=False): #, dim
         #    print("dorders", dorders, "obs_dim", obs_dim)
         name = obs.observable.string
         en_name = encode(name, dorders)
-        if en_name in data_dict: # field is "cached"
+        #print(en_name)
+        if en_name in data_dict and (obs_dim is None or obs_dim<data_dict[en_name].shape[-1]): # field is "cached"
             if obs_dim is None:
                 data_arr = data_dict[en_name]
             else:
@@ -203,14 +203,19 @@ def eval_term(lt, weight, data_dict, domain, dxs, debug=False): #, dim
             data_slice = get_slice(data_arr, domain)
             if sum(dorders)!=0:
                 product *= diff(data_slice, dorders, dxs)
+                #full_diff = diff(data_arr, dorders, dxs)
+                #product *= get_slice(full_diff, domain)
+                #if obs_dim is None:
+                #    data_dict[name] = data_arr
+                #else:
+                #    if en_name not in data_dict:
+                #        data_dict[name] = np.zeros(shape=data_arr[..., np.newaxis].shape)
+                #    data_dict[name][..., obs_dim] = data_arr
             else:
                 product *= data_slice
         #print(product[0, 0, 0])
     weight_arr = weight.get_weight_array(domain.shape)
     product *= weight_arr
-    #total += product
-    #print(total[0,0,0])
-    #return total
     return product
         
 def get_dims(term, ndims, dim=None, start=0, do=None, od=None):
@@ -239,15 +244,11 @@ def get_dims(term, ndims, dim=None, start=0, do=None, od=None):
         for new_dim in range(ndims):
             do_new = copy.deepcopy(do)
             od_new = copy.deepcopy(od)
-            #print("do", do)
-            #print("od", od)
             for val in vals:
                 if val%2==0:
                     do_new[val//2][new_dim] += 1
                 else:
                     od_new[val//2] = new_dim
-            #print("do_new", do_new)
-            #print("od_new", od_new)
             yield from get_dims(term, ndims, dim=dim, start=start+1, do=do_new, od=od_new) 
 
 def int_arr(arr, dxs=None): # integrate the output of eval_term with respect to weight function

@@ -39,6 +39,7 @@ def sparse_reg(Theta, opts=None, threshold='pareto', brute_force=True, delta=1e-
         Theta = np.vstack([Theta, M*np.transpose(Xi)]) # acts as a constraint - weights should be orthogonal to Xi
     
     h, w = Theta.shape
+    Thetanm /= sqrt(w) # scale norm of Theta by square root of # columns to fix scaling of Theta@Xi vs Thetanm
     #beta = w/h # aspect ratio
     
     if valid_single is None:

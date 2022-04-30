@@ -15,6 +15,7 @@ def load(filename, nload):
 
 # Notes: this requires observables to already be constructed;
 # no power abbreviations
+### To DO - CAN (AND PROBABLY SHOULD BE) REWRITTEN!
 def construct_from_string(input_str, type_str, obs_dict):
     # obs_dict: name -> Observable
     #if type_str == "Observable": 
