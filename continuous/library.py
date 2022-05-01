@@ -102,13 +102,13 @@ class LibraryPrimitive(object):
             xstring = f"dx^{xorder} "
         return f'{tstring}{xstring}{self.observable}'
     
-    # For sorting: convention is (1) in ascending order of name/observable, (2) in DESCENDING order of dorder
+    # For sorting: convention is (1) in ascending order of name/observable, (2) in *ascending* order of dorder
     
     def __lt__ (self, other):
         if not isinstance(other, LibraryPrimitive):
             raise ValueError("Second argument is not a LibraryPrimitive.") 
         if self.observable == other.observable:
-            return self.dorder > other.dorder
+            return self.dorder < other.dorder
         else:
             return self.observable < other.observable
 
@@ -613,13 +613,13 @@ def raw_library_tensors(observables, obs_orders, nt, nx, max_order=DerivativeOrd
                 new_orders[zeroidx] -= 1
                 if obs_orders[zeroidx]==1: # reset max_order since we are going to next terms
                     do = DerivativeOrder(inf, inf)
-                for term2 in raw_library_tensors(observables, new_orders, nt-i, nx-j, max_order=do):
-                    yield term1*term2
+                for term2 in raw_library_tensors(observables, new_orders, nt-i, nx-j, do, zeroidx):
+                    yield term2*term1 # reverse back to ascending order here
 
 rho = Observable('rho', 0)
 v = Observable('v', 1)
 def generate_terms_to(order, observables=[rho, v], max_observables=999):
-    observables = sorted(observables) # make sure ordering is consistent with canonicalization rules
+    observables = sorted(observables, reverse=True) # make sure ordering is reverse of canonicalization rules
     libterms = list()
     libterms.append(ConstantTerm())
     N = order # max number of "blocks" to include

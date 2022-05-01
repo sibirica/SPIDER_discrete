@@ -82,12 +82,11 @@ class CoarseGrainedPrimitive(object): # represents rho[product of obs_list]
         self.obs_list = obs_list
         self.obs_ranks = [obs.rank for obs in obs_list] # don't know if we'll need this
         self.rank = sum(self.obs_ranks) 
-        self.complexity = len(obs_list)+1 # add 1 for the coarse-graining operator
+        self.complexity = (len(obs_list) if obs_list!=[] else 0.33) +1 # add 1 for the coarse-graining operator, rho[1] counts for 1.33
         
     def __repr__(self):
         repstr = [str(obs)+' * ' for obs in self.obs_list]
-        sumstr = reduce(add, repstr)[:-3]
-        return f"rho[{sumstr}]"
+        return f"rho[{reduce(add, repstr)[:-3]}]" if repstr != [] else "rho"
     
     def __hash__(self): # it's nice to be able to use CGP in sets or dicts
         return hash(self.__repr__())
@@ -111,7 +110,7 @@ class CoarseGrainedPrimitive(object): # represents rho[product of obs_list]
         #    else:
         #        let = dim_to_let[dim[0]]
         #        indexed_str += f"{str(obs)}_{let} * "
-        return f"rho[{indexed_str[:-3]}]"
+        return f"rho[{indexed_str[:-3]}]" if indexed_str != "" else "rho"
         
     def __lt__ (self, other):
         if not isinstance(other, CoarseGrainedPrimitive):
@@ -151,30 +150,39 @@ class CoarseGrainedPrimitive(object): # represents rho[product of obs_list]
         new_inds = inds.copy()
         reps = 1
         prev = self.obs_list[0]
-        start_ind = 0
-        while start_ind<len(self.obs_list)-1:
-            prev = self.obs_list[start_ind]
-            while start_ind+reps<len(self.obs_list) and prev == self.obs_list[reps]:
+        obs_start_ind = 0
+        ind_start_ind = 0
+        while obs_start_ind<len(self.obs_list)-1:
+            prev = self.obs_list[obs_start_ind]
+            while obs_start_ind+reps<len(self.obs_list) and prev == self.obs_list[reps]:
                 reps += 1
-            new_inds[start_ind:start_ind+reps] = sorted(new_inds[start_ind:start_ind+reps])
-            start_ind += reps
+            if prev.rank>0:
+                new_inds[ind_start_ind:ind_start_ind+reps] =       sorted(new_inds[ind_start_ind:ind_start_ind+reps])
+            obs_start_ind += reps
+            ind_start_ind += reps*prev.rank
         return new_inds
     
     def is_index_canon(self, inds): # can just check that inds == index_canon(ind), but this is more efficient 
+        #print(self.obs_list)
+        #print(inds)
         if len(inds) == 0:
             return inds
         reps = 1
         prev = self.obs_list[0]
-        start_ind = 0
-        while start_ind<len(self.obs_list)-1:
-            prev = self.obs_list[start_ind]
-            while start_ind+reps<len(self.obs_list) and prev == self.obs_list[reps]:
+        obs_start_ind = 0
+        ind_start_ind = 0
+        while obs_start_ind<len(self.obs_list)-1:
+            prev = self.obs_list[obs_start_ind]
+            while obs_start_ind+reps<len(self.obs_list) and prev == self.obs_list[reps]:
                 reps += 1
-            ni = inds[start_ind:start_ind+reps]
-            if all(a <= b for a, b in zip(ni, ni[1:])):
-                start_ind += reps
+            ni = inds[ind_start_ind:ind_start_ind+reps]
+            if prev.rank==0 or all(a <= b for a, b in zip(ni, ni[1:])):
+                obs_start_ind += reps
+                ind_start_ind += reps*prev.rank
             else:
+                #print('false')
                 return False
+        #print('true')
         return True
 
 @dataclass
@@ -205,13 +213,13 @@ class LibraryPrimitive(object):
             xstring = f"dx^{xorder} "
         return f'{tstring}{xstring}{self.cgp}'
     
-    # For sorting: convention is (1) in ascending order of name, (2) in DESCENDING order of dorder
+    # For sorting: convention is (1) in ascending order of name, (2) in *ascending* order of dorder
     
     def __lt__ (self, other):
         if not isinstance(other, LibraryPrimitive):
             raise ValueError("Second argument is not a LibraryPrimitive.") 
         if self.cgp == other.cgp:
-            return self.dorder > other.dorder
+            return self.dorder < other.dorder
         else:
             return self.cgp < other.cgp
 
@@ -304,7 +312,10 @@ class LibraryTensor(object): # unindexed version of LibraryTerm
             raise ValueError(f"Cannot multiply {type(self)}, {type(other)}")
     
     def __rmul__(self, other):
-        return __mul__(self, other)
+        if other != 1:
+            return other.__mul__(self)
+        else:
+            return self
     
     def __repr__(self):
         repstr = [str(obs)+' * ' for obs in self.observable_list]
@@ -600,9 +611,13 @@ class ConstantTerm(IndexedTerm):
         self.observable_list = []
         self.rank = 0
         self.complexity = 1
+        self.is_canonical = True
                 
     def __repr__(self):
-        return "rho[1]"
+        return "1"
+    
+    def canonicalize(self):
+        return self
     
 def label_repr(prim, ind1, ind2):
     torder = prim.dorder.torder
@@ -696,6 +711,10 @@ def test_valid_label(output_dict, obs_list): # it would arguably be smarter to p
     # else need to check more carefully
     n = len(obs_list)
     index_list = labels_to_index_list(output_dict, n)
+    # don't think this test is needed since this only gets broken later
+    #for sub_list, prim in zip(index_list[1::2], obs_list):
+    #    if sub_list != [] and not prim.cgp.is_index_canon(sub_list):
+    #        return False
     for i in range(n):
         for j in range(i+1, n):
             if obs_list[i] == obs_list[j]:
@@ -715,6 +734,7 @@ def yield_tuples_up_to(bounds):
             yield (i,)+tup
             
 def yield_legal_tuples(bounds):
+    #print("bounds:", bounds)
     if sum(bounds[:-2])>0: # if there are still other observables left
         #print("ORDERS:", bounds)
         yield from yield_tuples_up_to(bounds)
@@ -726,55 +746,62 @@ def yield_legal_tuples(bounds):
 # check!
 #def raw_library_tensors(observables, obs_orders, nt, nx, max_order=None, zeroidx=0):
 def raw_library_tensors(observables, orders, max_order=None, zeroidx=0):
-    # basically: iteratively take any possible subset from [obs_orders; nt; nx] 
+    # basically: iteratively take any possible subset from [obs_orders; nrho; nt; nx] 
     # as long as it's lexicographically less than previous order; take at least one of first observable
     
     #print(orders, max_order, zeroidx)
-    #while obs_orders[zeroidx]==0:
-    while orders[zeroidx]==0:
-        zeroidx += 1
-        if zeroidx==len(observables):
+    N = len(observables)
+    if orders[N] == 0:
+        if sum(orders) > 0: # invalid distribution
+            return
+        else:
             yield 1
             return
+    while zeroidx<N and orders[zeroidx]==0:
+        zeroidx += 1
+    if zeroidx<N:
+        orders[zeroidx] -= 1 # always put in at least one of these to maintain lexicographic order
+        
     #orders = obs_orders + [nt, nx]
     #print("ORDERS: ", orders)
-    orders[zeroidx] -= 1 # always put in at least one of these to maintain lexicographic order
-
-    for tup in yield_legal_tuples(orders):
+    for tup in yield_legal_tuples(orders[:N]+[0]+orders[N+1:]): # ignore the rho index
         orders_copy = orders.copy()
         popped_orders = list(tup)
         #print("Popped: ", popped_orders)
         for i in range(len(orders)):
             orders_copy[i] -= popped_orders[i]
-        if sum(orders_copy[:-2])==0 and sum(orders_copy[-2:])>0: # all observables popped but derivatives remain
+        if sum(orders_copy[:-2])==0 and sum(orders_copy[-2:])>0: # all observables + rho popped but derivatives remain
             continue # otherwise we will have duplicates from omitting derivatives
-        popped_orders[zeroidx] += 1 # re-adding the one
+        if zeroidx<N:
+            popped_orders[zeroidx] += 1 # re-adding the one
+        orders_copy[N] -= 1 # account for the rho we used
+        popped_orders[N] += 1 # include the rho here as well
         po_cl = CompList(popped_orders)
         if max_order is None or po_cl <= max_order:
             obs_list = []
-            for i, order in enumerate(popped_orders[:-2]):
+            for i, order in enumerate(popped_orders[:-3]): # rho appears automatically so stop at -3
                 obs_list += [observables[i]]*order
-            cgp = CoarseGrainedPrimitive(obs_list)
+            cgp = CoarseGrainedPrimitive(obs_list[::-1]) # flip order of observables back to ascending
             do = DerivativeOrder(popped_orders[-2], popped_orders[-1])
             prim = LibraryPrimitive(do, cgp)
             term1 = LibraryTensor(prim)
             #for term2 in raw_library_tensors(observables, orders[:-2], orders[-2], orders[-1], max_order=max_order):
-            for term2 in raw_library_tensors(observables, orders_copy, max_order=po_cl):
-                yield term1*term2
+            for term2 in raw_library_tensors(observables, orders_copy, po_cl, zeroidx):
+                yield term2*term1 # reverse order here to match canonicalization rules!
 
 rho = Observable('rho', 0)
 v = Observable('v', 1)
 def generate_terms_to(order, observables=[rho, v], max_observables=999):
     # note: this ignores the fact that rho operator adds complexity, but you can filter by complexity later
-    observables = sorted(observables) # make sure ordering is consistent with canonicalization rules
+    observables = sorted(observables, reverse=True) # ordering opposite of canonicalization rules for now
     libterms = list()
     libterms.append(ConstantTerm())
-    N = order-1 # max number of "blocks" to include: note that each rho is -1
+    N = order # max number of "blocks" to include
     K = len(observables)
-    part = partition(N, K+2) # K observables + 2 derivative dimensions
+    partitions = partition(N, K+3) # K observables + rho + 2 derivative dimensions
     # not a valid term if no observables or max exceeded
-    for part in partition(N, K+2):
-        if sum(part[:K])>0 and sum(part[:K])<=max_observables:
+    for part in partitions:
+        if part[K]>0 and sum(part[:K])<=max_observables: # popped a rho, did not exceed max observables
             #nt, nx = part[-2:]
             #obs_orders = part[:-2]
             #for tensor in raw_library_tensors(observables, obs_orders, nt, nx):

@@ -68,7 +68,7 @@ class Weight(object):
     
     def __repr__(self):
         return f"Weight({self.m}, {self.q}, {self.k}, {self.scale}, {self.dxs})"
-        
+    
 def make_domains(dims, world_size, ndomains, pad=0):
     domains = []
     for i in range(ndomains):
@@ -309,21 +309,17 @@ def make_library(terms, data_dict, cg_dict, weights, domains, rank, dxs=None, by
                         row_index += 1
                     continue
                 for (space_orders, obs_dims) in get_dims(term, len(dshape)-1, kc): # note: temporal index not included here
-                    # first, check if labeling is canonical within each CGP
-                    valid_label = True
-                    for sub_list, prim in zip(obs_dims, term.observable_list):
-                        if not prim.cgp.is_index_canon(sub_list):
-                            valid_label = False
-                            break
-                    if not valid_label:
-                        continue
-                    
+                    # first, make labeling canonical within each CGP
                     if space_orders is None and obs_dims is None:
                         nt = len(term.observable_list)
                         space_orders = [[0]*len(dshape) for i in nt]
-                        obs_dims = [[None]*i.cgp.rank for i in nt]
+                        canon_obs_dims = [[None]*i.cgp.rank for i in nt]
+                    else:
+                        canon_obs_dims = []
+                        for sub_list, prim in zip(obs_dims, term.observable_list):
+                            canon_obs_dims.append(prim.cgp.index_canon(sub_list))
                     # integrate by parts
-                    indexed_term = IndexedTerm(term, space_orders, obs_dims)
+                    indexed_term = IndexedTerm(term, space_orders, canon_obs_dims)
                     # note that we have taken integration by parts outside of the domain loop
                     if debug:
                         print("ORIGINAL TERM:")
@@ -349,10 +345,10 @@ def make_library(terms, data_dict, cg_dict, weights, domains, rank, dxs=None, by
 
 
 ## TO DO - rewrite to work with cg_dict
-def find_scales(data_dict, names=None): 
+def find_scales(cg_dict, domains, names=None): 
     # find mean/std deviation of fields in data_dict that are in names
     scale_dict = dict()
-    for name in data_dict:
+    for name in cg_dict:
         if names is None or name in names:
             scale_dict[name] = dict()
             scale_dict[name]['mean'] = np.mean(np.abs(data_dict[name]))
