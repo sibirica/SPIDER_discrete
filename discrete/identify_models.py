@@ -1,3 +1,5 @@
+### It may or may not be nicer to take the SRDataset object as input for some of these 
+
 from library import *
 from sparse_reg import *
 from timeit import default_timer as timer
@@ -25,8 +27,7 @@ def identify_equations(Q, reg_opts, library, observables, threshold=1e-5, min_co
             inds = [s[1] for s in selection]
             reg_opts['subinds'] = inds
             ### identify model
-            eq, res = make_equation_from_Xi(*sparse_reg(
-                                            Q, **reg_opts), sublibrary)
+            eq, res = make_equation_from_Xi(*sparse_reg(Q, **reg_opts), sublibrary)
             if res > threshold:
                 break
             equations.append(eq)

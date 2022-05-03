@@ -297,15 +297,15 @@ class IndexedPrimitive(LibraryPrimitive):
 class LibraryTensor(object): # unindexed version of LibraryTerm
     def __init__(self, observables):
         if isinstance(observables, LibraryPrimitive):  # constructor for library terms consisting of a primitive with some derivatives
-            self.observable_list = [observables]
+            self.obs_list = [observables]
         else:  # constructor for library terms consisting of a product
-            self.observable_list = observables
-        self.rank = sum([obs.rank for obs in self.observable_list])
-        self.complexity = sum([obs.complexity for obs in self.observable_list])
+            self.obs_list = observables
+        self.rank = sum([obs.rank for obs in self.obs_list])
+        self.complexity = sum([obs.complexity for obs in self.obs_list])
         
     def __mul__(self, other):
         if isinstance(other, LibraryTensor):
-            return LibraryTensor(self.observable_list + other.observable_list)
+            return LibraryTensor(self.obs_list + other.obs_list)
         elif other==1:
             return self
         else:
@@ -318,7 +318,7 @@ class LibraryTensor(object): # unindexed version of LibraryTerm
             return self
     
     def __repr__(self):
-        repstr = [str(obs)+' * ' for obs in self.observable_list]
+        repstr = [str(obs)+' * ' for obs in self.obs_list]
         return reduce(add, repstr)[:-3]
 
 def labels_to_index_list(labels, n): # n = number of observables
@@ -387,9 +387,9 @@ class LibraryTerm(object):
     canon_dict = dict() # used to store ambiguous canonicalizations (which shouldn't exist for less than 6 indices)
     
     def __init__(self, libtensor, labels=None, index_list=None):
-        self.observable_list = libtensor.observable_list
+        self.obs_list = libtensor.obs_list
         self.bin_sizes = flatten([(observable.dorder.xorder, observable.cgp.rank) 
-                                  for observable in self.observable_list])
+                                  for observable in self.obs_list])
         self.libtensor = libtensor
         self.rank = (libtensor.rank % 2)
         self.complexity = libtensor.complexity
@@ -411,7 +411,7 @@ class LibraryTerm(object):
         
     def __eq__(self, other):
         if isinstance(other, LibraryTerm):
-            return self.observable_list==other.observable_list and self.index_list==other.index_list
+            return self.obs_list==other.obs_list and self.index_list==other.index_list
         else:
             return False
     
@@ -425,7 +425,7 @@ class LibraryTerm(object):
         return str(self)>str(other)
     
     def __repr__(self):
-        repstr = [label_repr(obs, ind1, ind2)+' * ' for (obs, ind1, ind2) in zip(self.observable_list, self.der_index_list, self.obs_index_list)]
+        repstr = [label_repr(obs, ind1, ind2)+' * ' for (obs, ind1, ind2) in zip(self.obs_list, self.der_index_list, self.obs_index_list)]
         return reduce(add, repstr)[:-3]
     
     def __hash__(self): # it's nice to be able to use LibraryTerms in sets or dicts
@@ -443,7 +443,7 @@ class LibraryTerm(object):
                 a, b = self.increment_indices(1), other.increment_indices(shift+1)
             else:
                 a, b = self, other.increment_indices(shift)
-            return LibraryTerm(LibraryTensor(a.observable_list + b.observable_list),
+            return LibraryTerm(LibraryTensor(a.obs_list + b.obs_list),
                                index_list = a.index_list + b.index_list).canonicalize()
         elif str(other)=="1":
             return self
@@ -456,7 +456,7 @@ class LibraryTerm(object):
         return self.__mul__(other)
     
     def structure_canonicalize(self):
-        indexed_zip = zip(self.observable_list, self.der_index_list, self.obs_index_list)
+        indexed_zip = zip(self.obs_list, self.der_index_list, self.obs_index_list)
         sorted_zip = sorted(indexed_zip, key=lambda x:x[0])
         if sorted_zip == indexed_zip: # no changes necessary
             return self
@@ -476,14 +476,14 @@ class LibraryTerm(object):
         new_index_list = [[subs_dict[i] for i in li] for li in self.index_list]
         for li in new_index_list[::2]: # sort all derivative indices
             li = sorted(li)
-        for obs, li in zip(self.observable_list, new_index_list[1::2]): # canonicalize CGPs
+        for obs, li in zip(self.obs_list, new_index_list[1::2]): # canonicalize CGPs
             li = obs.cgp.index_canon(li)
         if all([li1==li2 for li1, li2 in zip(self.index_list, new_index_list)]): # no changes were made
             return self
         return LibraryTerm(self.libtensor, index_list=new_index_list)
     
     def reorder(self, template):
-        indexed_zip = zip(self.observable_list, self.der_index_list, self.obs_index_list, template)
+        indexed_zip = zip(self.obs_list, self.der_index_list, self.obs_index_list, template)
         sorted_zip = sorted(indexed_zip, key=lambda x:x[3])
         sorted_obs = [e[0] for e in sorted_zip]
         sorted_ind1 = [e[1] for e in sorted_zip]
@@ -500,7 +500,7 @@ class LibraryTerm(object):
             return canon
         reorderings = []
         alternative_canons = []
-        for template in get_isomorphic_terms(str_canon.observable_list):
+        for template in get_isomorphic_terms(str_canon.obs_list):
             term = str_canon.reorder(template)
             if term not in reorderings: # exclude permutation-symmetric options
                 reorderings.append(term)
@@ -514,14 +514,14 @@ class LibraryTerm(object):
     
     def increment_indices(self, inc):
         index_list = [[index+inc for index in li] for li in self.index_list]
-        return LibraryTerm(LibraryTensor(self.observable_list), index_list=index_list)
+        return LibraryTerm(LibraryTensor(self.obs_list), index_list=index_list)
     
     def dt(self):
         terms = []
-        for i, obs in enumerate(self.observable_list):
+        for i, obs in enumerate(self.obs_list):
             new_obs = obs.dt()
             # note: no need to recanonicalize terms after a dt
-            lt = LibraryTerm(LibraryTensor(self.observable_list[:i]+[new_obs]+self.observable_list[i+1:]), 
+            lt = LibraryTerm(LibraryTensor(self.obs_list[:i]+[new_obs]+self.obs_list[i+1:]), 
                              index_list=self.index_list)
             terms.append(lt)
         ts = TermSum(terms)
@@ -529,18 +529,18 @@ class LibraryTerm(object):
     
     def dx(self):
         terms = []
-        for i, obs in enumerate(self.observable_list):
+        for i, obs in enumerate(self.obs_list):
             new_obs = obs.dx()
             new_index_list = copy.deepcopy(self.index_list)
             new_index_list[2*i].insert(0, 0)
-            lt = LibraryTerm(LibraryTensor(self.observable_list[:i]+[new_obs]+self.observable_list[i+1:]),
+            lt = LibraryTerm(LibraryTensor(self.obs_list[:i]+[new_obs]+self.obs_list[i+1:]),
                              index_list=new_index_list)
             if lt.rank == 0:
                 lt = lt.increment_indices(1)
             lt = lt.canonicalize() # structure changes after derivative so we must recanonicalize
             terms.append(lt)
         ts = TermSum(terms)
-        #print(self.observable_list, "->", [term.observable_list for term in ts.term_list])
+        #print(self.obs_list, "->", [term.obs_list for term in ts.term_list])
         #print(self.index_list, "->", [term.index_list for term in ts.term_list])
         return ts.canonicalize()
     
@@ -559,56 +559,56 @@ def get_isomorphic_terms(obs_list, start_order=None):
             yield list(perm)+new_list
 
 class IndexedTerm(object): # LibraryTerm with i's mapped to x/y/z
-    def __init__(self, libterm=None, space_orders=None, nested_obs_dims=None, observable_list=None):
-        if observable_list is None: # normal "from scratch" constructor
+    def __init__(self, libterm=None, space_orders=None, nested_obs_dims=None, obs_list=None):
+        if obs_list is None: # normal "from scratch" constructor
             self.rank = libterm.rank
             self.complexity = libterm.complexity
-            nterms = len(libterm.observable_list)
-            self.observable_list = libterm.observable_list.copy()
-            for i, obs, sp_ord, obs_dims in zip(range(nterms), libterm.observable_list, space_orders, nested_obs_dims):
-                self.observable_list[i] = IndexedPrimitive(obs, sp_ord, obs_dims)
+            nterms = len(libterm.obs_list)
+            self.obs_list = libterm.obs_list.copy()
+            for i, obs, sp_ord, obs_dims in zip(range(nterms), libterm.obs_list, space_orders, nested_obs_dims):
+                self.obs_list[i] = IndexedPrimitive(obs, sp_ord, obs_dims)
             self.ndims = len(space_orders[0])+1
-            self.nderivs = np.max([p.nderivs for p in self.observable_list])
+            self.nderivs = np.max([p.nderivs for p in self.obs_list])
         else: # direct constructor from observable list
-            #print(observable_list)
-            if len(observable_list)>0: # if term is not simply equal to 1
-                self.rank = observable_list[0].rank
-                self.ndims = observable_list[0].ndims
-                self.observable_list = observable_list
-                self.complexity = sum([obs.complexity for obs in observable_list])
-                self.nderivs = np.max([p.nderivs for p in self.observable_list])
+            #print(obs_list)
+            if len(obs_list)>0: # if term is not simply equal to 1
+                self.rank = obs_list[0].rank
+                self.ndims = obs_list[0].ndims
+                self.obs_list = obs_list
+                self.complexity = sum([obs.complexity for obs in obs_list])
+                self.nderivs = np.max([p.nderivs for p in self.obs_list])
             else:
-                self.observable_list = []
+                self.obs_list = []
                 self.ndims = 0
                 self.nderivs = 0
                 self.complexity = 0
             
     def __repr__(self):
-        repstr = [str(obs)+' * ' for obs in self.observable_list]
+        repstr = [str(obs)+' * ' for obs in self.obs_list]
         return reduce(add, repstr)[:-3]
     
     def __mul__(self, other):
         if isinstance(other, IndexedTerm):
-            return IndexedTerm(observable_list=self.observable_list+other.observable_list)
+            return IndexedTerm(obs_list=self.obs_list+other.obs_list)
         else:
-            return IndexedTerm(observable_list=self.observable_list+[other])
+            return IndexedTerm(obs_list=self.obs_list+[other])
     
     def drop(self, obs):
-        obs_list_copy = self.observable_list.copy()
+        obs_list_copy = self.obs_list.copy()
         if len(obs_list_copy)>1:
             obs_list_copy.remove(obs)
         else:
             obs_list_copy = []
-        return IndexedTerm(observable_list=obs_list_copy)
+        return IndexedTerm(obs_list=obs_list_copy)
     
     def diff(self, dim):
-        for i, obs in enumerate(self.observable_list):
+        for i, obs in enumerate(self.obs_list):
             yield obs.diff(dim)*self.drop(obs)
             
 # Note: must be handled separately in derivatives
 class ConstantTerm(IndexedTerm):
     def __init__(self):
-        self.observable_list = []
+        self.obs_list = []
         self.rank = 0
         self.complexity = 1
         self.is_canonical = True
@@ -685,10 +685,10 @@ def place_indices(*rank_array):
 
 def list_labels(tensor):
     rank_array = []
-    for term in tensor.observable_list:
+    for term in tensor.obs_list:
         rank_array.append(term.dorder.xorder)
         rank_array.append(term.cgp.rank)
-    return [output_dict for output_dict in place_indices(*rank_array) if test_valid_label(output_dict, tensor.observable_list)]
+    return [output_dict for output_dict in place_indices(*rank_array) if test_valid_label(output_dict, tensor.obs_list)]
 
 # check if index labeling is invalid (i.e. not in non-decreasing order among identical terms)
 # this excludes more incorrect options early than is_canonical
@@ -812,7 +812,7 @@ def generate_terms_to(order, observables=[rho, v], max_observables=999):
                 #print("List of labels", list_labels(tensor))
                 for label in list_labels(tensor):
                     #print("Label", label)
-                    index_list = labels_to_index_list(label, len(tensor.observable_list))
+                    index_list = labels_to_index_list(label, len(tensor.obs_list))
                     #print("Index list", index_list)
                     for lt in get_library_terms(tensor, index_list):
                         #print("LT", lt)
@@ -843,7 +843,7 @@ def get_library_terms(tensor, index_list):
     # distribute indexes in CGP according to all permutations that are canonical (with only those indices)
     der_index_list = index_list[0::2]
     obs_index_list = index_list[1::2]
-    for perm_list in get_valid_reorderings(tensor.observable_list, obs_index_list):
+    for perm_list in get_valid_reorderings(tensor.obs_list, obs_index_list):
         #print("perm_list:", perm_list)
         yield LibraryTerm(tensor, index_list=flatten(zip(der_index_list, perm_list)))
 

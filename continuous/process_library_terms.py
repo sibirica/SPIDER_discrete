@@ -94,7 +94,7 @@ def int_by_parts_dim(term, weight, dim):
     # find best term to base integration off of
     best_prim, next_prim = None, None
     best_i, next_i = None, None
-    for (i, prim) in enumerate(term.observable_list):
+    for (i, prim) in enumerate(term.obs_list):
         if prim.nderivs == term.nderivs:
             if best_prim is None:
                 best_i, best_prim = i, prim
@@ -123,7 +123,7 @@ def int_by_parts_dim(term, weight, dim):
         rest = rest.drop(next_prim)
         if next_prim.succeeds(best_prim, dim): # check if next_best goes with best
             # check if next best is unique
-            for obs in rest.observable_list:
+            for obs in rest.obs_list:
                 if obs == next_prim: # can stop here because we limit the number of terms
                     # x' * x * x case
                     #print(rest, next_prim)
@@ -169,19 +169,18 @@ def decode(data_name): # this function is not strictly necessary
     str_list = data_name.split("~")
     return str_list[0], [int(c) for c in str_list[1]]
 
-def eval_term(lt, weight, data_dict, domain, dxs, debug=False): #, dim
+def eval_term(lt, weight, data_dict, domain, dxs, debug=False):
     # lt: LibraryTerm
     # weight
     # data_dict: keys are Observable names, values are data arrays
     # domain: IntegrationDomain corresponding to where the term is evaluated
-    # dim: dimension of the vector to be returned (e.g., 0, 1, 2, or None)
     # return the evaluated term on the domain grid
 
     product = np.ones(shape=domain.shape)
     # won't execute at all for a constant term
     if debug:
         print(f"LibraryTerm {lt}")
-    for idx, obs in enumerate(lt.observable_list):
+    for idx, obs in enumerate(lt.obs_list):
         dorders = obs.dimorders
         obs_dim = obs.obs_dim
         #if debug:
@@ -223,9 +222,9 @@ def get_dims(term, ndims, dim=None, start=0, do=None, od=None):
     labels = term.labels
     #print(labels)
     if do is None:
-        do = [[0]*ndims for t in term.observable_list] # derivatives in x, y (z) of each part of the term
+        do = [[0]*ndims for t in term.obs_list] # derivatives in x, y (z) of each part of the term
     if od is None:
-        od = [None]*len(term.observable_list) # the dimension of the observable to evaluate (None if the observable is rank 0)
+        od = [None]*len(term.obs_list) # the dimension of the observable to evaluate (None if the observable is rank 0)
     if len(labels.keys())==0:
         yield do, od
         return
@@ -297,7 +296,7 @@ def make_library(terms, data_dict, weights, domains, rank, dxs=None, by_parts=Tr
                     continue
                 for (space_orders, obs_dims) in get_dims(term, len(dshape)-1, kc): # note: temporal index not included here
                     if space_orders is None and obs_dims is None:
-                        nt = len(term.observable_list)
+                        nt = len(term.obs_list)
                         space_orders = [[0]*len(dshape) for i in nt]
                         obs_dims = [None] * nt
                     # integrate by parts
@@ -305,12 +304,12 @@ def make_library(terms, data_dict, weights, domains, rank, dxs=None, by_parts=Tr
                     # note that we have taken integration by parts outside of the domain loop
                     if debug:
                         print("ORIGINAL TERM:")
-                        print(indexed_term, [o.dimorders for o in indexed_term.observable_list])
+                        print(indexed_term, [o.dimorders for o in indexed_term.obs_list])
                     if by_parts:
                         for mod_term, mod_weight in int_by_parts(indexed_term, weight): # integration by parts
                             if debug:
                                 print("INTEGRATED BY PARTS:")
-                                print(mod_term, [o.dimorders for o in mod_term.observable_list], mod_weight)
+                                print(mod_term, [o.dimorders for o in mod_term.obs_list], mod_weight)
                             for p, domain in enumerate(domains):
                                 arr[..., p] += eval_term(mod_term, mod_weight, data_dict, domain, dxs, 
                                                          debug=(debug and p==0))
@@ -338,14 +337,14 @@ def find_scales(data_dict, names=None):
 def get_char_size(term, scale_dict, dx, dt):
     # return characteristic size of a library term
     product = 1
-    for tm in term.observable_list:
+    for tm in term.obs_list:
         xorder = tm.dorder.xorder
         torder = tm.dorder.torder
         name = tm.observable.string
         if torder+xorder>0:
-            product *= scale_dict[name]['mean']
-        else:
             product *= scale_dict[name]['std']
+        else:
+            product *= scale_dict[name]['mean']
         product *= dx**xorder
         product *= dt**torder
     return product if product>0 else 1 # if the variable is always 0 then we'll get division by zero
