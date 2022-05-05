@@ -14,26 +14,21 @@ class IntegrationDomain(object):
         self.min_corner = min_corner
         self.max_corner = max_corner
         self.shape = [max_c-min_c+1 for (min_c, max_c) in zip(self.min_corner, self.max_corner)]
-        self.times = list[range(min_corner[-1], max_corner[-1]+1)]
-        
+        self.times = list(range(min_corner[-1], max_corner[-1]+1))
+    
     def __repr__(self):
         return f"IntegrationDomain({self.min_corner}, {self.max_corner})"
     
     def __hash__(self): # for use in cg_dict etc.
         # here we use that min_corner and max_corner are both lists of ints
-        return hash((tuple(self.min_corner+self.max_corner)))
+        return hash(tuple(self.min_corner+self.max_corner))
     
-    def distance(pt):
-        return max([self.line_dist(coord, dim) for i, coord in enumerate(pt)])
+    def distance(self, pt):
+        return max(self.line_dist(coord, i) for i, coord in enumerate(pt))
         #return np.linalg.norm([self.line_dist(coord, dim) for i, coord in enumerate(pt)])
     
-    def line_dist(coord, dim):
-        if coord<self.min_corner[dim]:
-            return self.min_corner[dim]-coord
-        elif coord>self.max_corner[dim]:
-            return coord-self.max_corner[dim]
-        else:
-            return 0
+    def line_dist(self, coord, dim):
+        return max(0, self.min_corner[dim] - coord, coord - self.max_corner[dim])
     
 #class CGPIndexing(object): # a choice of indexing within coarse-grained primitive
 #    def __init__(self, index_list):
@@ -91,35 +86,37 @@ def lists_for_N(nloops, loop_max):
         yield []
         return
     for i in range(loop_max+1):
-        yield from [i]+lists_for_N(nloops-1, loop_max)    
+        for li in lists_for_N(nloops-1, loop_max):
+            yield [i]+li   
 
 class SRDataset(object): # structures all data associated with a given sparse regression dataset
-    def __init__(self, world_size, data_dict, particle_pos, observables, kernel_sigma, cg_res, deltat):
+    def __init__(self, world_size, data_dict, particle_pos, observables, kernel_sigma, cg_res, deltat, cutoff=8):
         self.world_size = world_size # linear dimensions of dataset
         self.n_dimensions = len(world_size) # number of dimensions (spatial + temporal)
         self.data_dict = data_dict # observable -> array of values (particle, spatial index, time)
         self.cg_dict = dict() # storage of computed coarse-grained quantities
-        self.cgp_list = [] # list of coarse-grained primitives involved
+        self.cgps = [] # list of coarse-grained primitives involved
         self.particle_pos = particle_pos # array of particle positions (particle, spatial index, time)
         self.observables = observables # list of observables
         self.kernel_sigma = kernel_sigma # standard deviation of kernel in physical units (scalar for now)
         self.cg_res = cg_res # subsampling factor when computing coarse-graining, i.e. cg_res points per unit length; should generally just be an integer
         self.scaled_sigma = kernel_sigma*cg_res
         self.scaled_pts = particle_pos*cg_res
-        self.dxs = [1/cg_res]*(n_dimensions-1)+[deltat] # spacings of sampling grid
+        self.dxs = [1/cg_res]*(self.n_dimensions-1)+[deltat] # spacings of sampling grid
         self.domain_neighbors = None
+        self.cutoff = cutoff # how many std deviations to cut off gaussians at
         self.scale_dict = None # dict of characteristic scales of observables -> (mean, std)
         
     def make_libraries(self, max_complexity=4, max_observables=3):
-        self.libraries = dict()
+        self.libs = dict()
         terms = generate_terms_to(max_complexity, observables=self.observables,
                                   max_observables=max_observables)
         for rank in (0, 1):
-            self.libraries[rank] = LibraryData(self, terms, rank)
+            self.libs[rank] = LibraryData([term for term in terms if term.rank==rank], rank)
 
-    def make_domains(self, ndomains, domain_dims, pad=0):
+    def make_domains(self, ndomains, domain_size, pad=0):
         self.domains = []
-        scaled_dims = [int(s*self.cg_res) for s in domain_dims[:-1]]+[domain_dims[-1]]
+        scaled_dims = [int(s*self.cg_res) for s in domain_size[:-1]]+[domain_size[-1]]
         scaled_world_size = [int(s*self.cg_res) for s in self.world_size[:-1]]+[self.world_size[-1]]
         #scaled_pad = np.ceil(pad*self.cg_res)
         self.domain_size = scaled_dims
@@ -133,25 +130,25 @@ class SRDataset(object): # structures all data associated with a given sparse re
                 max_corner.append(num+L-1)
             self.domains.append(IntegrationDomain(min_corner, max_corner))
             
-    # not sure whether I want the default value or not
-    def find_domain_neighbors(self, cutoff=8):
+    def find_domain_neighbors(self):
         # list of indices corresponding to particles needed to compute quantities on each domain at each t
         self.domain_neighbors = dict()
         for domain in self.domains:
             for t in domain.times:
                 self.domain_neighbors[domain, t] = []
                 for i, pt in enumerate(self.scaled_pts):
-                    if domain.distance(pt[:, t]) <= scaled_sigma*cutoff:
+                    dist = domain.distance(pt[:, t])
+                    if dist <= self.scaled_sigma*self.cutoff:
                         self.domain_neighbors[domain, t].append(i)
             
-    def make_weights(self, nweights, m, qmax):
+    def make_weights(self, m, qmax):
         self.weights = []
         self.weight_dxs = [(width-1)/2*dx for width, dx in zip(self.domain_size, self.dxs)]
         for q in lists_for_N(self.n_dimensions, qmax):
             self.weights.append(Weight([m]*self.n_dimensions, q, [0]*self.n_dimensions,
                                        dxs=self.weight_dxs))
             
-    def eval_term(term, domain, weight, debug=False):
+    def eval_term(self, term, weight, domain, debug=False):
     # term: IndexedTerm
     # weight
     # domain: IntegrationDomain corresponding to where the term is evaluated
@@ -162,7 +159,6 @@ class SRDataset(object): # structures all data associated with a given sparse re
         for idx, prim in enumerate(term.obs_list):
             dorders = prim.dimorders
             obs_dims = prim.obs_dims
-            name = prim.observable.string
             cgp = prim.cgp
             #if debug:
             #    print("dorders", dorders, "obs_dims", obs_dims)
@@ -183,122 +179,131 @@ class SRDataset(object): # structures all data associated with a given sparse re
         return product
 
     ## TO DO: implement coarse-graining
-    def eval_cgp(self, cgp, obs_dims, domain, cutoff=8):
-        data_slice = np.zeros([int(s*self.cg_res) for s in domain.shape[:-1]]+[domain.shape[-1]])
+    def eval_cgp(self, cgp, obs_dims, domain):
+        data_slice = np.zeros(domain.shape)
         if self.domain_neighbors is None:
             self.find_domain_neighbors()
-        for t in domain.times:
-            time_slice = np.zeros([int(s*self.cg_res) for s in domain.shape[:-1]])
-            for i in self.domain_neighbors[domain, t]:
-                pt_pos = self.scaled_pts[i, :, t]
+        for t in range(domain.shape[-1]):
+            time_slice = np.zeros(domain.shape[:-1])
+            t_shifted = t+domain.min_corner[-1]
+            for i in self.domain_neighbors[domain, t_shifted]:
+                pt_pos = self.scaled_pts[i, :, t_shifted]
                 # evaluate observables inside rho[...]
                 coeff = 1
                 obs_dim_ind = 0
-                for obs in obs_list:
+                for obs in cgp.obs_list:
+                    #print(obs, i, obs_dims[obs_dim_ind], t_shifted)
                     if obs.rank==0:
-                        coeff *= self.data_dict[obs.string]
+                        coeff *= self.data_dict[obs.string][i, 0, t_shifted]
                     else:
-                        coeff *= self.data_dict[obs.string][..., obs_dims[obs_dim_ind]]
+                        coeff *= self.data_dict[obs.string][i, obs_dims[obs_dim_ind], t_shifted]
                     obs_dim_ind += obs.rank
+                    #print(coeff)
                 # coarse-graining this particle (one dimension at a time)
                 rngs = []
                 g_nd = 1
-                for coord, domain_min, i in zip(pt_pos, domain.min_corner, range(self.n_dimensions)):
+                for coord, d_min, d_max, i in zip(pt_pos, domain.min_corner, domain.max_corner,
+                                                  range(self.n_dimensions-1)):
                     # recenter so that 0 is start of domain
-                    g, mn, mx = gauss1d(coord-domain_min, self.scaled_sigma, truncate=cutoff) 
+                    g, mn, mx = gauss1d(coord-d_min, self.scaled_sigma, truncate=self.cutoff,
+                                       xmin=0, xmax=d_max-d_min) 
                     g_nd = np.multiply.outer(g_nd, g)
                     rng_array = np.array(range(mn, mx)) # coordinate range of kernel
                     # now need to add free axes so that the index ends up as an (n-1)-d array
                     n_free_dims = self.n_dimensions-i-2 # how many np.newaxis to add to index
                     expanded_rng_array = np.expand_dims(rng_array, axis=tuple(range(1, 1+n_free_dims)))
                     rngs.append(expanded_rng_array)
+                #if len((g_nd*coeff).shape) > len(time_slice.shape):
+                #    print(rngs, g_nd.shape, coeff)
                 time_slice[tuple(rngs)] += g_nd*coeff
             data_slice[..., t] = time_slice
-        data_slice *= res**(n_dimensions-1) # need to scale rho by res^(# spatial dims)!
+        data_slice *= self.cg_res**(self.n_dimensions-1) # need to scale rho by res^(# spatial dims)!
         return data_slice
-        
-    def make_library_matrix(self, rank, by_parts=True, debug=False):
-        if debug:
-            print(f"***RANK {rank} LIBRARY***")
-        terms = self.libraries[rank].terms
-        Q = np.zeros(shape=(len(self.weights)*len(self.domains)*d, len(terms)))
-        dshape = self.domain_size
-        if rank==1:
-            d = len(dshape)-1 # dimensionality of equation
-        else:
-            d = 1
-        for i, term in enumerate(terms):
-            row_index = 0
+    
+    def make_library_matrices(self, by_parts=True, debug=False):
+        for rank in (0, 1):
             if debug:
-                print("\ni:", i)
-            # this check should be redundant now
-            #if term.rank != rank: # select only terms of the desired rank
-            #    continue
-            if debug:
-                print("UNINDEXED TERM:")
-                print(term)
-            for weight in self.weights:
-                for k in range(d):
-                    if rank==0:
-                        kc = None
-                    else:
-                        kc = k
-                    arr = np.zeros(np.append(dshape, len(domains)))
-                    if isinstance(term, ConstantTerm):
-                        # "short circuit" the evaluation to deal with constant term case
-                        for p, domain in enumerate(domains):
-                            weight_arr = weight.get_weight_array(dshape)
-                            Q[row_index, i] = int_arr(weight_arr, self.domain_dxs)
+                print(f"***RANK {rank} LIBRARY***")
+            terms = self.libs[rank].terms
+            dshape = self.domain_size
+            if rank==1:
+                d = len(dshape)-1 # dimensionality of equation
+            else:
+                d = 1
+            Q = np.zeros(shape=(len(self.weights)*len(self.domains)*d, len(terms)))
+            for i, term in enumerate(terms):
+                row_index = 0
+                if debug:
+                    print("\ni:", i)
+                # this check should be redundant now
+                #if term.rank != rank: # select only terms of the desired rank
+                #    continue
+                if debug:
+                    print("UNINDEXED TERM:")
+                    print(term)
+                for weight in self.weights:
+                    for k in range(d):
+                        if rank==0:
+                            kc = None
+                        else:
+                            kc = k
+                        arr = np.zeros(np.append(dshape, len(self.domains)))
+                        if isinstance(term, ConstantTerm):
+                            # "short circuit" the evaluation to deal with constant term case
+                            for p, domain in enumerate(self.domains):
+                                weight_arr = weight.get_weight_array(dshape)
+                                Q[row_index, i] = int_arr(weight_arr, self.dxs)
+                                if debug and p==0:
+                                    print("Value: ", Q[row_index, i])
+                                row_index += 1
+                            continue
+                        # note: temporal index not included here
+                        for (space_orders, obs_dims) in get_dims(term, len(dshape)-1, kc):
+                            #print(term, kc, list(get_dims(term, len(dshape)-1, kc)), space_orders, obs_dims)
+                            # first, make labeling canonical within each CGP
+                            if space_orders is None and obs_dims is None:
+                                nt = len(term.obs_list)
+                                space_orders = [[0]*len(dshape) for i in nt]
+                                canon_obs_dims = [[None]*i.cgp.rank for i in nt]
+                            else:
+                                canon_obs_dims = []
+                                for sub_list, prim in zip(obs_dims, term.obs_list):
+                                    canon_obs_dims.append(prim.cgp.index_canon(sub_list))
+                            # integrate by parts
+                            indexed_term = IndexedTerm(term, space_orders, canon_obs_dims)
+                            # note that we have taken integration by parts outside of the domain loop
+                            if debug:
+                                print("ORIGINAL TERM:")
+                                print(indexed_term, [o.dimorders for o in indexed_term.obs_list])
+                            if by_parts:
+                                # integration by parts
+                                for mod_term, mod_weight in int_by_parts(indexed_term, weight): 
+                                    if debug:
+                                        print("INTEGRATED BY PARTS:")
+                                        print(mod_term, [o.dimorders for o in mod_term.obs_list],
+                                              mod_weight)
+                                    for p, domain in enumerate(self.domains):
+                                        arr[..., p] += self.eval_term(mod_term, mod_weight,
+                                                                 domain, debug=(debug and p==0))
+                            else:
+                                for p, domain in enumerate(self.domains):
+                                    arr[..., p] += self.eval_term(indexed_term, weight, domain,
+                                                             debug=(debug and p==0))
+                        for p in range(len(self.domains)):
+                            Q[row_index, i] = int_arr(arr[..., p], self.dxs)
                             if debug and p==0:
                                 print("Value: ", Q[row_index, i])
                             row_index += 1
-                        continue
-                    # note: temporal index not included here
-                    for (space_orders, obs_dims) in get_dims(term, len(dshape)-1, kc): 
-                        # first, make labeling canonical within each CGP
-                        if space_orders is None and obs_dims is None:
-                            nt = len(term.obs_list)
-                            space_orders = [[0]*len(dshape) for i in nt]
-                            canon_obs_dims = [[None]*i.cgp.rank for i in nt]
-                        else:
-                            canon_obs_dims = []
-                            for sub_list, prim in zip(obs_dims, term.obs_list):
-                                canon_obs_dims.append(prim.cgp.index_canon(sub_list))
-                        # integrate by parts
-                        indexed_term = IndexedTerm(term, space_orders, canon_obs_dims)
-                        # note that we have taken integration by parts outside of the domain loop
-                        if debug:
-                            print("ORIGINAL TERM:")
-                            print(indexed_term, [o.dimorders for o in indexed_term.obs_list])
-                        if by_parts:
-                            # integration by parts
-                            for mod_term, mod_weight in int_by_parts(indexed_term, weight): 
-                                if debug:
-                                    print("INTEGRATED BY PARTS:")
-                                    print(mod_term, [o.dimorders for o in mod_term.obs_list],
-                                          mod_weight)
-                                for p, domain in enumerate(self.domains):
-                                    arr[..., p] += eval_term(mod_term, mod_weight,
-                                                             domain, debug=(debug and p==0))
-                        else:
-                            for p, domain in enumerate(self.domains):
-                                arr[..., p] += eval_term(indexed_term, weight, domain,
-                                                         debug=(debug and p==0))
-                    for p in range(len(domains)):
-                        Q[row_index, i] = int_arr(arr[..., p], dxs)
-                        if debug and p==0:
-                            print("Value: ", Q[row_index, i])
-                        row_index += 1
-        self.libraries[rank].Q = Q
-        #return Q
+            self.libs[rank].Q = Q
+            #return Q
 
-        # this is also a reasonable place to compute the column weights
-        if self.scale_dict is None: # haven't computed scales yet
-            self.find_scales()
-        self.libraries[rank].col_weights = [self.get_char_size(term) for term in
-                                            self.libraries[rank].terms]
-        if rank==0: # then we can also compute the row weights
-            self.find_row_weights()
+            # this is also a reasonable place to compute the column weights
+            #if self.scale_dict is None: # haven't computed scales yet
+        self.find_scales()
+        for rank in (0, 1):
+            self.libs[rank].col_weights = [self.get_char_size(term) for term in self.libs[rank].terms]
+            #if rank==0: # then we can also compute the row weights
+        self.find_row_weights()
         
     ## TO DO - just take empirical average/std over points
     def find_scales(self, names=None): 
@@ -320,15 +325,15 @@ class SRDataset(object): # structures all data associated with a given sparse re
         self.scale_dict['rho']['std'] = rho_std
     
     ## TO DO - needs to be rewritten a bit
-    def get_char_size(term):
+    def get_char_size(self, term):
         # return characteristic size of a library term
         product = 1
         for prim in term.obs_list:
-            xorder = tm.dorder.xorder
-            torder = tm.dorder.torder
+            xorder = prim.dorder.xorder
+            torder = prim.dorder.torder
             if torder+xorder>0:
                 statistic = 'std'
-            else
+            else:
                 statistic = 'mean'
             for obs in prim.cgp.obs_list:
                 name = obs.string
@@ -341,25 +346,25 @@ class SRDataset(object): # structures all data associated with a given sparse re
         return product
     
     def find_row_weights(self):
-        rho_col = find_term(self.libraries[0].terms, 'rho')
+        rho_col = find_term(self.libs[0].terms, 'rho')
         # integral of rho with the 0 harmonics weight
-        dom_densities = self.libraries[0].Q[0:len(self.domains), rho_col]
-        row_weights0 = np.tile(dom_densities, nweights)
+        dom_densities = self.libs[0].Q[0:len(self.domains), rho_col]
+        row_weights0 = np.tile(dom_densities, len(self.weights))
         # scale weights according to square root of density (to cancel CLT noise scaling)
         row_weights0 = np.sqrt(row_weights0)
         row_weights0 += 1e-6 # don't want it to be exactly zero
         # normalize
         row_weights0 /= np.max(row_weights0)
         row_weights1 = np.tile(row_weights0, self.n_dimensions-1) # because each dimension gets its own row
-        self.libraries[0].row_weights = row_weights0
-        self.libraries[1].row_weights = row_weights1
+        self.libs[0].row_weights = row_weights0
+        self.libs[1].row_weights = row_weights1
     
 # this class might be absorbed into SRDataset
 class LibraryData(object): # structures information associated with a given rank library
-    def __init__(self, parent, rank):
-        self.parent = parent
+    def __init__(self, terms, rank): #, parent
+        #self.parent = parent
+        self.terms = terms
         self.rank = rank
-        self.terms = []
         self.Q = None # Q matrix
         self.col_weights = None
         self.row_weights = None
@@ -379,7 +384,7 @@ def get_slice(arr, domain):
 def get_dims(term, ndims, dim=None, start=0, do=None, od=None):
     # yield all of the possible x, y, z labelings for a given LibraryTerm
     labels = term.labels
-    #print(labels)
+    #print(term, labels, dim)
     if do is None:
         do = [[0]*ndims for t in term.obs_list] # derivatives in x, y (z) of each part of the term
     if od is None:
@@ -391,7 +396,7 @@ def get_dims(term, ndims, dim=None, start=0, do=None, od=None):
         start += 1
         if dim is not None:
             val = labels[0][0]
-            if val%2==0:
+            if val[0]%2==0:
                 do[val[0]//2][dim] += 1
             else:
                 od[val[0]//2][val[1]] = dim
@@ -405,7 +410,7 @@ def get_dims(term, ndims, dim=None, start=0, do=None, od=None):
             #print("do", do)
             #print("od", od)
             for val_ind, val_pos in vals:
-                if val%2==0:
+                if val_ind%2==0:
                     do_new[val_ind//2][new_dim] += 1
                 else:
                     od_new[val_ind//2][val_pos] = new_dim

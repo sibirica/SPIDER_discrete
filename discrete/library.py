@@ -213,6 +213,9 @@ class LibraryPrimitive(object):
             xstring = f"dx^{xorder} "
         return f'{tstring}{xstring}{self.cgp}'
     
+    def __hash__(self):
+        return hash(self.__repr__())
+    
     # For sorting: convention is (1) in ascending order of name, (2) in *ascending* order of dorder
     
     def __lt__ (self, other):
@@ -248,7 +251,7 @@ class IndexedPrimitive(LibraryPrimitive):
         # obs_dims should be a flat list
         # however, it will be converted tо nested list where inner lists correspond to indices of observable
         self.dorder = prim.dorder
-        self.prim = prim.prim
+        self.cgp = prim.cgp
         self.rank = prim.rank
         self.complexity = prim.complexity
         if newords is None: # normal constructor
@@ -278,21 +281,27 @@ class IndexedPrimitive(LibraryPrimitive):
             tstring = "dt "
         else:
             tstring = f"dt^{torder} "
-        return f'{tstring}{xstring}{self.prim.cgp.index_str(self.obs_dims, coord=True)}'
+        return f'{tstring}{xstring}{self.cgp.index_str(self.obs_dims, coord=True)}'
     
     def __eq__(self, other):
-        return (self.dimorders==other.dimorders and self.prim==other.prim \
+        return (self.dimorders==other.dimorders and self.cgp==other.cgp \
                 and self.obs_dims==other.obs_dims)
     
     def succeeds(self, other, dim):
         copyorders = self.dimorders.copy()
         copyorders[dim] += 1
-        return copyorders==other.dimorders and self.prim==other.prim and self.obs_dim==other.obs_dim
+        return copyorders==other.dimorders and self.cgp==other.cgp and self.obs_dims==other.obs_dims
     
     def diff(self, dim):
         newords = self.dimorders.copy()
         newords[dim] += 1
         return IndexedPrimitive(self, newords=newords)
+    
+    def __mul__(self, other):
+        if isinstance(other, IndexedTerm):
+            return IndexedTerm(obs_list=[self]+other.obs_list)
+        else:
+            return IndexedTerm(obs_list=[self]+[other])
     
 class LibraryTensor(object): # unindexed version of LibraryTerm
     def __init__(self, observables):
@@ -618,6 +627,12 @@ class ConstantTerm(IndexedTerm):
     
     def canonicalize(self):
         return self
+    
+    def __mul__(self, other):
+        return other
+        
+    def __rmul__(self, other):
+        return other
     
 def label_repr(prim, ind1, ind2):
     torder = prim.dorder.torder
