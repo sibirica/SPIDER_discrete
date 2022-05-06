@@ -130,10 +130,7 @@ class CoarseGrainedPrimitive(object): # represents rho[product of obs_list]
     def __eq__ (self, other):
         if not isinstance(other, CoarseGrainedPrimitive):
             raise ValueError("Second argument is not an observable.") 
-        for a, b in zip(self.obs_list, other.obs_list):
-            if a != b:
-                return False
-        return True
+        return self.obs_list==other.obs_list
 
     def __ne__ (self, other):
         return not self.__eq__(other)

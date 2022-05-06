@@ -225,6 +225,8 @@ def opt_shrinker(y, beta):
 def regress(Theta, col_numbers): # regression on a fixed set of terms
     h, w = Theta.shape
     Thetanm = np.linalg.norm(Theta)
+    # fix scaling w/ respect to number of columns
+    Thetanm /= np.sqrt(w)
     smallinds = np.ones(shape=(w,))
     Xi = np.zeros(shape=(w,))
     smallinds[np.array(col_numbers)] = 0

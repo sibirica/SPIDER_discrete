@@ -148,7 +148,7 @@ class SRDataset(object): # structures all data associated with a given sparse re
             self.weights.append(Weight([m]*self.n_dimensions, q, [0]*self.n_dimensions,
                                        dxs=self.weight_dxs))
             
-    def eval_term(self, term, weight, domain, debug=False):
+    def eval_term(self, term, weight, domain, debug):
     # term: IndexedTerm
     # weight
     # domain: IntegrationDomain corresponding to where the term is evaluated
@@ -157,22 +157,26 @@ class SRDataset(object): # structures all data associated with a given sparse re
         if debug:
             print(f"IndexedTerm {term}")
         for idx, prim in enumerate(term.obs_list):
+            if debug:
+                print(f"IndexedPrimitive {prim}, CGP {prim.cgp}")
             dorders = prim.dimorders
             obs_dims = prim.obs_dims
             cgp = prim.cgp
-            #if debug:
-            #    print("dorders", dorders, "obs_dims", obs_dims)
+            if debug:
+                print("dorders", dorders, "obs_dims", obs_dims)
             if (cgp, tuple(obs_dims), domain) in self.cg_dict.keys(): # field is "cached"
                 data_slice = self.cg_dict[cgp, tuple(obs_dims), domain]
-                product *= data_slice
             else:
                 data_slice = self.eval_cgp(cgp, obs_dims, domain)
                 self.cg_dict[cgp, tuple(obs_dims), domain] = data_slice
-                self.cgps.append(cgp)
-                if sum(dorders)!=0:
-                    product *= diff(data_slice, dorders, self.weight_dxs)
-                else:
-                    product *= data_slice
+                if cgp not in self.cgps:
+                    if debug:
+                        print(f"CGP {cgp} is new")
+                    self.cgps.append(cgp)
+            if sum(dorders)!=0:
+                product *= diff(data_slice, dorders, self.weight_dxs)
+            else:
+                product *= data_slice
             #print(product[0, 0, 0])
         weight_arr = weight.get_weight_array(domain.shape)
         product *= weight_arr
@@ -252,6 +256,7 @@ class SRDataset(object): # structures all data associated with a given sparse re
                             # "short circuit" the evaluation to deal with constant term case
                             for p, domain in enumerate(self.domains):
                                 weight_arr = weight.get_weight_array(dshape)
+                                # I think this should not be weight_dxs?
                                 Q[row_index, i] = int_arr(weight_arr, self.dxs)
                                 if debug and p==0:
                                     print("Value: ", Q[row_index, i])
