@@ -1,7 +1,6 @@
 from functools import reduce
 from operator import add
 from itertools import permutations
-from numpy import inf
 import numpy as np
 import copy
 
