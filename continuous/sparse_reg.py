@@ -2,7 +2,7 @@ import numpy as np
 
 
 def sparse_reg(theta, opts=None, threshold='pareto', brute_force=True, delta=1e-10, epsilon=1e-2, gamma=2,
-               verbose=False, n_terms=-1, char_sizes=None, row_norms=None, valid_single=None, avoid=[], subinds=None):
+               verbose=False, n_terms=-1, char_sizes=None, row_norms=None, valid_single=None, avoid=None, subinds=None):
     # compute sparse regression on Theta * xi = 0
     # Theta: matrix of integrated terms
     # char_sizes: vector of characteristic term sizes (per column)
@@ -13,6 +13,8 @@ def sparse_reg(theta, opts=None, threshold='pareto', brute_force=True, delta=1e-
     # n_terms: if not -1, select from models with this number of terms and below
     # and a  lot more not described above
 
+    if avoid is None:
+        avoid = []
     theta = np.copy(theta)  # avoid bugs where array is modified in place
     thetanm = np.linalg.norm(theta)
     if subinds is not None:

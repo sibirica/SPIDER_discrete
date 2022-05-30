@@ -694,7 +694,9 @@ def compress(labels):
 
 
 # make a dictionary of how paired indices are placed
-def place_pairs(*rank_array, min_ind2=0, curr_ind=1, start=0, answer_dict=dict()):
+def place_pairs(*rank_array, min_ind2=0, curr_ind=1, start=0, answer_dict=None):
+    if answer_dict is None:
+        answer_dict = dict()
     while rank_array[start] <= 0:
         start += 1
         min_ind2 = 0
@@ -843,8 +845,10 @@ rho = Observable('rho', 0)
 v = Observable('v', 1)
 
 
-def generate_terms_to(order, observables=[rho, v], max_observables=999):
+def generate_terms_to(order, observables=None, max_observables=999):
     # note: this ignores the fact that rho operator adds complexity, but you can filter by complexity later
+    if observables is None:
+        observables = [rho, v]
     observables = sorted(observables, reverse=True)  # ordering opposite of canonicalization rules for now
     libterms = list()
     libterms.append(ConstantTerm())
