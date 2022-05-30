@@ -1,7 +1,7 @@
 from findiff import FinDiff
-from library import *
 from commons.weight import *
 from convolution import *
+from library import *
 
 
 # if we want to use integration domains with different sizes & spacings, it might be

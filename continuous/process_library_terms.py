@@ -1,10 +1,6 @@
-import numpy as np
-from library import *
-from commons.weight import *
-import copy
 from findiff import FinDiff
-from functools import reduce
-from operator import add
+from commons.weight import *
+from library import *
 
 
 class IntegrationDomain(object):

@@ -1,11 +1,10 @@
-from functools import reduce
-from operator import add
-from itertools import permutations
-import numpy as np
 import copy
-
 from dataclasses import dataclass, field
+from functools import reduce
+from itertools import permutations
+from operator import add
 from typing import List
+import numpy as np
 
 
 @dataclass(order=True)

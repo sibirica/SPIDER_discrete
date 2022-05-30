@@ -1,7 +1,5 @@
-import numpy as np
 from scipy.interpolate import interp1d
 from library import *
-from itertools import product
 
 
 def save(filename, *args):

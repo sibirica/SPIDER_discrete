@@ -1,5 +1,4 @@
 # It may or may not be nicer to take the SRDataset object as input for some of these
-from numpy import ceil
 from timeit import default_timer as timer
 
 from library import *
