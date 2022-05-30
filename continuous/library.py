@@ -221,7 +221,7 @@ class LibraryTensor(object):  # unindexed version of LibraryTerm
             raise ValueError(f"Cannot multiply {type(self)}, {type(other)}")
 
     def __rmul__(self, other):
-        return __mul__(self, other)
+        return self*other
 
     def __repr__(self):
         repstr = [str(obs) + ' * ' for obs in self.obs_list]

@@ -1,9 +1,6 @@
-import numpy as np
-import copy
 from findiff import FinDiff
-
 from library import *
-from weight import *
+from commons.weight import *
 from convolution import *
 
 

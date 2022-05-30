@@ -1,6 +1,6 @@
 import numpy as np
 from library import *
-from weight import *
+from commons.weight import *
 import copy
 from findiff import FinDiff
 from functools import reduce
