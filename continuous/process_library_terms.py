@@ -297,7 +297,7 @@ def make_library(terms, data_dict, weights, domains, rank, dxs=None, by_parts=Tr
                 for (space_orders, obs_dims) in get_dims(term, len(dshape)-1, kc): # note: temporal index not included here
                     if space_orders is None and obs_dims is None:
                         nt = len(term.obs_list)
-                        space_orders = [[0]*len(dshape) for i in nt]
+                        space_orders = [[0]*len(dshape) for i in range(nt)]
                         obs_dims = [None] * nt
                     # integrate by parts
                     indexed_term = IndexedTerm(term, space_orders, obs_dims)

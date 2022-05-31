@@ -267,9 +267,8 @@ class SRDataset(object): # structures all data associated with a given sparse re
                             #print(term, kc, list(get_dims(term, len(dshape)-1, kc)), space_orders, obs_dims)
                             # first, make labeling canonical within each CGP
                             if space_orders is None and obs_dims is None:
-                                nt = len(term.obs_list)
-                                space_orders = [[0]*len(dshape) for i in nt]
-                                canon_obs_dims = [[None]*i.cgp.rank for i in nt]
+                                space_orders = [[0]*len(dshape) for i in term.obs_list]
+                                canon_obs_dims = [[None]*i.cgp.rank for i in term.obs_list]
                             else:
                                 canon_obs_dims = []
                                 for sub_list, prim in zip(obs_dims, term.obs_list):
