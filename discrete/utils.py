@@ -1,11 +1,12 @@
-import numpy as np
 from library import *
+
 
 def save(filename, *args):
     with open(filename, 'wb') as f:
         for arr in args:
             np.save(f, arr, allow_pickle=True)
-            
+
+
 def load(filename, nload):
     to_load = []
     with open(filename, 'rb') as f:
@@ -13,22 +14,23 @@ def load(filename, nload):
             to_load.append(np.load(f, allow_pickle=True))
     return tuple(to_load)
 
+
 # Notes: this requires observables to already be constructed;
 # no power abbreviations
-### To DO - CAN (AND PROBABLY SHOULD BE) REWRITTEN!
+# Todo - CAN (AND PROBABLY SHOULD BE) REWRITTEN!
 def construct_from_string(input_str, type_str, obs_dict):
     # obs_dict: name -> Observable
-    #if type_str == "Observable": 
-        # makes more sense to construct from the usual constructor
+    # if type_str == "Observable":
+    # makes more sense to construct from the usual constructor
     if type_str == "LibraryPrimitive" or type_str == "LP":
         token_list = input_str.split()
         torder = token_list.count("dt")
         xorder = token_list.count("dx")
         obs = obs_dict[token_list[-1]]
         return LibraryPrimitive(DerivativeOrder(torder, xorder), obs)
-    #elif type_str == "IndexedPrimitive":
-        # not implemented until it seems useful
-    elif type_str == "LibraryTensor": # most likely not going to be used
+    # elif type_str == "IndexedPrimitive":
+    # not implemented until it seems useful
+    elif type_str == "LibraryTensor":  # most likely not going to be used
         if input_str == 1:
             return ConstantTerm()
         token_list = input_str.split(" * ")
@@ -41,14 +43,14 @@ def construct_from_string(input_str, type_str, obs_dict):
         token_list = input_str.split(" * ")
         obs_list = []
         index_list = []
-        for token in token_list: 
+        for token in token_list:
             obs, inds1, inds2 = term_plus_inds(token, obs_dict)
             obs_list.append(obs)
             index_list = index_list + [inds1, inds2]
         lt = LibraryTensor(obs_list)
         return LibraryTerm(lt, index_list=index_list)
-    #elif type_str == "IndexedTerm":
-        # not implemented until it seems useful
+    # elif type_str == "IndexedTerm":
+    # not implemented until it seems useful
     elif type_str == "Equation" or type_str == "EQ":
         term_list = []
         coeffs = []
@@ -70,14 +72,15 @@ def construct_from_string(input_str, type_str, obs_dict):
         return Equation(term_list, coeffs)
     else:
         raise ValueError(type_str + " is not a valid option.")
-        
+
+
 def term_plus_inds(string, obs_dict):
     inds1 = []
     inds2 = []
     token_list = string.split()
     obs_token = token_list[-1]
     obs_tk_list = obs_token.split("_")
-    if len(obs_tk_list)==1:
+    if len(obs_tk_list) == 1:
         obs_nm = obs_dict[obs_token]
     else:
         obs_nm = obs_dict[obs_tk_list[0]]
