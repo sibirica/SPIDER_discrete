@@ -93,7 +93,7 @@ def int_by_parts(term, weight, dim=0):
 def int_by_parts_dim(term, weight, dim):
     # find best term to base integration off of
     best_prim, next_prim = None, None
-    best_i, next_i = None, None
+    best_i, next_i = None, None # not actually used
     for (i, prim) in enumerate(term.obs_list):
         if prim.nderivs == term.nderivs:
             if best_prim is None:
@@ -107,7 +107,7 @@ def int_by_parts_dim(term, weight, dim):
         elif prim.nderivs == term.nderivs-1 and next_prim is None:
             next_i, next_prim = i, prim
     # check viability by cases
-    newords = best_prim.dimorders.copy()
+    newords = copy.deepcopy(best_prim.dimorders)
     newords[dim] -= 1
     new_weight = weight.increment(dim)
     new_prim = IndexedPrimitive(best_prim, newords=newords)
@@ -128,9 +128,12 @@ def int_by_parts_dim(term, weight, dim):
                     # x' * x * x case
                     #print(rest, next_prim)
                     rest = rest.drop(obs)
-                    for summand in rest.diff(dim):
-                        yield next_prim*next_prim*next_prim*summand, -1/3*weight, False
-                    yield next_prim*next_prim*next_prim*rest, -1/3*new_weight, False
+                    if obs in rest.obs_list: # yet another one (we don't handle this case at the moment)
+                        yield term, weight, True
+                    else:
+                        for summand in rest.diff(dim):
+                            yield next_prim*next_prim*next_prim*summand, -1/3*weight, False
+                        yield next_prim*next_prim*next_prim*rest, -1/3*new_weight, False
                     return
                 elif obs.nderivs == term.nderivs-1: # not unique and doesn't match
                     yield term, weight, True

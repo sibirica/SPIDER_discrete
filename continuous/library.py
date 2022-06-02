@@ -184,12 +184,12 @@ class IndexedPrimitive(LibraryPrimitive):
             return IndexedTerm(obs_list=[self, other])
     
     def succeeds(self, other, dim):
-        copyorders = self.dimorders.copy()
+        copyorders = copy.deepcopy(self.dimorders)
         copyorders[dim] += 1
         return copyorders==other.dimorders and self.observable==other.observable and self.obs_dim==other.obs_dim
     
     def diff(self, dim):
-        newords = self.dimorders.copy()
+        newords = copy.deepcopy(self.dimorders)
         newords[dim] += 1
         return IndexedPrimitive(self, newords=newords)
     
@@ -433,7 +433,7 @@ class IndexedTerm(object): # LibraryTerm with i's mapped to x/y/z
             self.complexity = libterm.complexity
             #self.obs_dims = obs_dims
             nterms = len(libterm.obs_list)
-            self.obs_list = libterm.obs_list.copy()
+            self.obs_list = copy.deepcopy(libterm.obs_list)
             for i, obs, sp_ord, obs_dim in zip(range(nterms), libterm.obs_list, space_orders, obs_dims):
                 self.obs_list[i] = IndexedPrimitive(obs, sp_ord, obs_dim)
             self.ndims = len(space_orders[0])+1
@@ -464,7 +464,7 @@ class IndexedTerm(object): # LibraryTerm with i's mapped to x/y/z
     
     def drop(self, obs):
         #print(self.obs_list)
-        obs_list_copy = self.obs_list.copy()
+        obs_list_copy = copy.deepcopy(self.obs_list)
         if len(obs_list_copy)>1:
             obs_list_copy.remove(obs)
         else:
@@ -484,6 +484,12 @@ class ConstantTerm(IndexedTerm):
                 
     def __repr__(self):
         return "1"
+    
+    def dt(self):
+        return None
+    
+    def dx(self):
+        return None
     
 def label_repr(prim, ind1, ind2):
     torder = prim.dorder.torder
@@ -689,11 +695,15 @@ class Equation(object): # can represent equation (expression = 0) OR expression
     def dt(self):
         components = [coeff*term.dt() for term, coeff in zip(self.term_list, self.coeffs)
                       if not isinstance(term, ConstantTerm)]
+        if components == []:
+            return None
         return reduce(add, components).canonicalize()
         
     def dx(self):
         components = [coeff*term.dx() for term, coeff in zip(self.term_list, self.coeffs)
                       if not isinstance(term, ConstantTerm)]
+        if components == []:
+            return None
         return reduce(add, components).canonicalize()
     
     def canonicalize(self):

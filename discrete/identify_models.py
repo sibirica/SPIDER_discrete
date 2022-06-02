@@ -76,6 +76,7 @@ def interleave_identify(Qs, reg_opts_list, libraries, threshold=1e-5, min_comple
     return equations, lambdas, derived_eqns, excluded_terms
 
 def make_equation_from_Xi(Xi, lambd, best_term, lambda1, sublibrary):
+    #print(Xi, lambd, best_term, lambda1, sublibrary)
     if lambda1 < lambd:
         return Equation([sublibrary[best_term]], [1]), lambda1
     else:
@@ -104,7 +105,7 @@ def make_terms(lib_prim_data):
 def infer_equations(equation, lib_prim_terms, max_complexity):
     lhs, rhs = equation.eliminate_complex_term()
     yield lhs, rhs
-    if lhs.complexity >= max_complexity: # should be at most equal actually
+    if lhs.complexity >= max_complexity or isinstance(lhs, ConstantTerm):
         return
     # need to handle cases if lhs derivative has multiple terms and/or has coeff bigger than 1
     if rhs is not None:

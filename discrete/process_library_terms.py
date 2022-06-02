@@ -318,11 +318,11 @@ class SRDataset(object): # structures all data associated with a given sparse re
                 self.scale_dict[name] = dict()
                 # if these are vector quantities the results could be wonky in the unlikely
                 # case a vector field is consistently aligned with one of the axes
-                self.scale_dict[name]['mean'] = np.mean(np.linalg.norm(self.data_dict[name]))
+                self.scale_dict[name]['mean'] = np.mean(np.linalg.norm(self.data_dict[name])/np.sqrt(self.data_dict[name].size))
                 self.scale_dict[name]['std'] = np.std(self.data_dict[name])
         # also need to handle density separately
         self.scale_dict['rho'] = dict()
-        self.scale_dict['rho']['mean'] = self.particle_pos.shape[0]/np.prod(self.world_size)
+        self.scale_dict['rho']['mean'] = self.particle_pos.shape[0]/np.prod(self.world_size[:-1])
         rho_ind = find_term(self.cgps, 'rho')
         rho_cgp = self.cgps[rho_ind]
         rho_std = np.std(np.dstack([self.cg_dict[rho_cgp, (), domain] for domain in self.domains]))
@@ -451,7 +451,7 @@ def int_by_parts_dim(term, weight, dim):
     #best_prim, next_best, third_best = None, None, None
     #best_i, next_i, third_i = None, None, None
     best_prim, next_prim = None, None
-    best_i, next_i = None, None
+    best_i, next_i = None, None # not actually used
     for (i, prim) in enumerate(term.obs_list):
         if prim.nderivs == term.nderivs:
             if best_prim is None:
@@ -464,10 +464,8 @@ def int_by_parts_dim(term, weight, dim):
                 return  
         elif prim.nderivs == term.nderivs-1 and next_prim is None:
             next_i, next_prim = i, prim
-        #elif prim.nderivs == term.nderivs-2:
-        #    third_i, third_best = i, prim
     # check viability by cases
-    newords = best_prim.dimorders.copy()
+    newords = copy.deepcopy(best_prim.dimorders)
     newords[dim] -= 1
     new_weight = weight.increment(dim)
     new_prim = IndexedPrimitive(best_prim, newords=newords)
@@ -484,13 +482,16 @@ def int_by_parts_dim(term, weight, dim):
         if next_prim.succeeds(best_prim, dim): # check if next_best goes with best
             # check if next best is unique
             for obs in rest.obs_list:
-                if obs == next_prim: # can stop here because we limit the number of terms
+                if obs == next_prim:
                     # x' * x * x case
                     #print(rest, next_prim)
                     rest = rest.drop(obs)
-                    for summand in rest.diff(dim):
-                        yield next_prim*next_prim*next_prim*summand, -1/3*weight, False
-                    yield next_prim*next_prim*next_prim*rest, -1/3*new_weight, False
+                    if obs in rest.obs_list: # yet another one (we don't handle this case at the moment)
+                        yield term, weight, True 
+                    else:
+                        for summand in rest.diff(dim):
+                            yield next_prim*next_prim*next_prim*summand, -1/3*weight, False
+                        yield next_prim*next_prim*next_prim*rest, -1/3*new_weight, False
                     return
                 elif obs.nderivs == term.nderivs-1: # not unique and doesn't match
                     yield term, weight, True
