@@ -24,6 +24,7 @@ def identify_equations(Q, reg_opts, library, threshold=1e-5, min_complexity=1,
         max_complexity = int(np.ceil(lib_max_complexity))
     lib_prim_data = set([tup for term in library for tup in unpack_prims(term)])
     lib_prim_terms = make_terms(lib_prim_data)
+    #print(lib_prim_terms)
     for complexity in range(min_complexity, max_complexity+1):
         while len(equations)<max_equations:
             selection = [(term, i) for (i, term) in enumerate(library) if term.complexity<=complexity
@@ -48,10 +49,7 @@ def identify_equations(Q, reg_opts, library, threshold=1e-5, min_complexity=1,
             derived_eqns[str(eq)] = []
             for lhs, rhs in infer_equations(eq, lib_prim_terms, lib_max_complexity):
                 excluded_terms.add(lhs)
-                if rhs is None:
-                    derived_eqns[str(eq)].append(Equation([lhs], [1]))
-                else:
-                    derived_eqns[str(eq)].append(-1*TermSum([lhs])+rhs)
+                derived_eqns[str(eq)].append(form_equation(lhs, rhs))
     return equations, lambdas, derived_eqns, excluded_terms
 
 def interleave_identify(Qs, reg_opts_list, libraries, threshold=1e-5, min_complexity=1,
@@ -74,6 +72,12 @@ def interleave_identify(Qs, reg_opts_list, libraries, threshold=1e-5, min_comple
             derived_eqns.update(der_eqns_i)
             excluded_terms.update(exc_terms_i)
     return equations, lambdas, derived_eqns, excluded_terms
+
+def form_equation(lhs, rhs):
+    if rhs is None:
+        return Equation([lhs], [1])
+    else:
+        return TermSum([lhs])+(-1)*rhs
 
 def make_equation_from_Xi(Xi, lambd, best_term, lambda1, sublibrary):
     #print(Xi, lambd, best_term, lambda1, sublibrary)

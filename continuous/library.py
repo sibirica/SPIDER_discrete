@@ -471,6 +471,13 @@ class IndexedTerm(object): # LibraryTerm with i's mapped to x/y/z
             obs_list_copy = []
         return IndexedTerm(obs_list=obs_list_copy)
     
+    def drop_all(self, obs): # remove *aLL* instances of obs
+        if len(self.obs_list)>1:
+            obs_list_copy = list(filter(obs.__ne__, self.obs_list))
+        else:
+            obs_list_copy = []
+        return IndexedTerm(obs_list=obs_list_copy)
+    
     def diff(self, dim):
         for i, obs in enumerate(self.obs_list):
             yield obs.diff(dim)*self.drop(obs)
@@ -675,7 +682,7 @@ class Equation(object): # can represent equation (expression = 0) OR expression
             
     def __rmul__(self, other):
         if isinstance(other, LibraryTerm):
-            return Equation([other*term for term in self.term_list], self.coeffs)
+            return Equation([(other*term).canonicalize() for term in self.term_list], self.coeffs)
         else: # multiplication by number
             return Equation(self.term_list, [other*c for c in self.coeffs])
         

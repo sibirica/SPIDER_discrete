@@ -1,5 +1,6 @@
 import numpy as np
 import copy
+from operator import mul
 from findiff import FinDiff
 
 from library import *
@@ -451,7 +452,7 @@ def int_by_parts_dim(term, weight, dim):
     #best_prim, next_best, third_best = None, None, None
     #best_i, next_i, third_i = None, None, None
     best_prim, next_prim = None, None
-    best_i, next_i = None, None # not actually used
+    num_next = 0
     for (i, prim) in enumerate(term.obs_list):
         if prim.nderivs == term.nderivs:
             if best_prim is None:
@@ -462,8 +463,13 @@ def int_by_parts_dim(term, weight, dim):
             else: # multiple candidate terms -> integrating by parts will not help
                 yield term, weight, True
                 return  
-        elif prim.nderivs == term.nderivs-1 and next_prim is None:
-            next_i, next_prim = i, prim
+        elif prim.nderivs == term.nderivs-1:
+            if next_prim is None:
+                num_next, next_prim = 1, prim
+            elif prim==next_prim:
+                num_next += 1
+            else: # not all one-lower terms are successors of best_prim
+                yield term, weight, True
     # check viability by cases
     newords = copy.deepcopy(best_prim.dimorders)
     newords[dim] -= 1
@@ -478,28 +484,12 @@ def int_by_parts_dim(term, weight, dim):
         return
     else:
         #print(rest, next_prim)
-        rest = rest.drop(next_prim)
         if next_prim.succeeds(best_prim, dim): # check if next_best goes with best
-            # check if next best is unique
-            for obs in rest.obs_list:
-                if obs == next_prim:
-                    # x' * x * x case
-                    #print(rest, next_prim)
-                    rest = rest.drop(obs)
-                    if obs in rest.obs_list: # yet another one (we don't handle this case at the moment)
-                        yield term, weight, True 
-                    else:
-                        for summand in rest.diff(dim):
-                            yield next_prim*next_prim*next_prim*summand, -1/3*weight, False
-                        yield next_prim*next_prim*next_prim*rest, -1/3*new_weight, False
-                    return
-                elif obs.nderivs == term.nderivs-1: # not unique and doesn't match
-                    yield term, weight, True
-                    return
-            # x' * x case
+            rest = rest.drop_all(next_prim)
+            num_dupes = 1+num_next
             for summand in rest.diff(dim):
-                yield next_prim*next_prim*summand, -1/2*weight, False
-            yield next_prim*next_prim*rest, -1/2*new_weight, False
+                yield reduce(mul, [next_prim]*num_dupes)*summand, -1/num_dupes*weight, False
+            yield reduce(mul, [next_prim]*num_dupes)*rest, -1/num_dupes*new_weight, False
             return
         else:
             yield term, weight, True
