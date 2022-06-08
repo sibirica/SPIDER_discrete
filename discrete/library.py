@@ -120,7 +120,7 @@ class CoarseGrainedPrimitive(object): # represents rho[product of obs_list]
                 continue
             else:
                 return a<b
-        return False
+        return len(self.obs_list)<len(other.obs_list)
 
     def __gt__ (self, other):
         if not isinstance(other, CoarseGrainedPrimitive):
