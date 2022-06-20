@@ -1,12 +1,11 @@
 import copy
-from dataclasses import dataclass, field
 from functools import reduce
 from itertools import permutations
 from operator import add
-from typing import List
-import numpy as np
-from commons.library import *
 
+import numpy as np
+
+from commons.library import *
 
 dim_to_let = {0: 'x', 1: 'y', 2: 'z'}
 
@@ -50,7 +49,7 @@ class CoarseGrainedPrimitive(object):  # represents rho[product of obs_list]
 
     def __lt__(self, other):
         if not isinstance(other, CoarseGrainedPrimitive):
-            raise ValueError("Second argument is not an observable.")
+            raise TypeError("Second argument is not a CoarseGrainedPrimitive.")
         for a, b in zip(self.obs_list, other.obs_list):
             if a == b:
                 continue
@@ -58,14 +57,15 @@ class CoarseGrainedPrimitive(object):  # represents rho[product of obs_list]
                 return a < b
         return False
 
+    # TODO: This may be redundant. I believe python does this proccess internally.
     def __gt__(self, other):
         if not isinstance(other, CoarseGrainedPrimitive):
-            raise ValueError("Second argument is not an observable.")
+            raise TypeError("Second argument is not a CoarseGrainedPrimitive.")
         return other.__lt__(self)
 
     def __eq__(self, other):
         if not isinstance(other, CoarseGrainedPrimitive):
-            raise ValueError("Second argument is not an observable.")
+            raise TypeError("Second argument is not a CoarseGrainedPrimitive.")
         return self.obs_list == other.obs_list
 
     def __ne__(self, other):

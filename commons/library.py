@@ -5,7 +5,7 @@ from typing import List
 @dataclass(order=True)
 class CompPair(object):
     """
-    Data class used to compare integer tuples.
+    Data class used to compare integer tuples of space and time derivative orders.
     :attribute torder: time derivative order.
     :attribute xorder: space derivative order.
     :attribute complexity: term complexity.
@@ -25,6 +25,7 @@ class CompPair(object):
 class CompList(object):
     """
     Data class used to compare lists of integer, which don't need to be of equal length.
+    :attribute in_list: Internal (or index?) list, a list of integers.
     """
     in_list: List[int]
 
@@ -86,8 +87,8 @@ class Observable(object):
     """
     Data class object that stores a string representation of an observable as well as its rank.
     """
-    string: str
-    rank: int
+    string: str  # String representing the Observable.
+    rank: int  # Derivative rank of the Observable.
 
     def __repr__(self):
         return self.string
@@ -99,6 +100,7 @@ class Observable(object):
             raise TypeError("Second argument is not an observable.")
         return self.string < other.string
 
+    # TODO: This may be redundant. I believe python does this proccess internally.
     def __gt__(self, other):
         if not isinstance(other, Observable):
             raise TypeError("Second argument is not an observable.")

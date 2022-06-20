@@ -1,17 +1,22 @@
 import copy
-from dataclasses import dataclass, field
 from functools import reduce
 from itertools import permutations
 from operator import add
-from typing import List
+from typing import Union, List
 
 import numpy as np
 from numpy import inf
+
 from commons.library import *
 
 
+# noinspection PyArgumentList
 @dataclass
 class LibraryPrimitive(object):
+    """
+    Object representing a library primitive. Stores the primitive's derivative order, corresponding Observable, rank and
+    complexity.
+    """
     dorder: DerivativeOrder
     observable: Observable
     rank: int = field(init=False)
@@ -28,38 +33,87 @@ class LibraryPrimitive(object):
     # For sorting: convention is (1) in ascending order of name/observable, (2) in *ascending* order of dorder
 
     def __lt__(self, other):
+        """
+        Explicitly defines the < (lesser than) operator between two LibraryPrimitive objects.
+        If two LibraryPrimitive have the same observable, self<other iff self.dorder < other.dorder. Else, compare the
+        observables directly.
+        :param other: LibraryPrimitive to be compared.
+        :return: Test comparison result.
+        """
         if not isinstance(other, LibraryPrimitive):
-            raise ValueError("Second argument is not a LibraryPrimitive.")
+            raise TypeError("Second argument is not a LibraryPrimitive.")
         if self.observable == other.observable:
             return self.dorder < other.dorder
         else:
             return self.observable < other.observable
 
+    # TODO: This may be redundant. I believe python does this proccess internally.
     def __gt__(self, other):
         if not isinstance(other, LibraryPrimitive):
-            raise ValueError("Second argument is not a LibraryPrimitive.")
+            raise TypeError("Second argument is not a LibraryPrimitive.")
         return other.__lt__(self)
 
     def __eq__(self, other):
+        """
+        Explicitly defines the == (equals) operation between two LibraryPrimitive objects.
+        Two LibraryPrimitive objects are deemed equal if they have the same observable and derivative order.
+        :param other:
+        :return:
+        """
         if not isinstance(other, LibraryPrimitive):
-            raise ValueError("Second argument is not a LibraryPrimitive.")
+            raise TypeError("Second argument is not a LibraryPrimitive.")
         return self.observable == other.observable and self.dorder == other.dorder
 
     def __ne__(self, other):
         return not self.__eq__(other)
 
-    def dt(self):
+    def dt(self) -> 'LibraryPrimitive':
+        """
+        Increase order of time derivative by one.
+        :return: A LibraryPrimitive object with the same spacial order and one plus its temporal order.
+        """
         return LibraryPrimitive(self.dorder.dt(), self.observable)
 
-    def dx(self):
+    def dx(self) -> 'LibraryPrimitive':
+        """
+        Increase order of space derivative by one.
+        :return: A LibraryPrimitive object with the same temporal order and one plus its spacial order.
+        """
         return LibraryPrimitive(self.dorder.dx(), self.observable)
 
 
 class IndexedPrimitive(LibraryPrimitive):
-    dim_to_let = {0: 'x', 1: 'y', 2: 'z'}
+    """
+    Object representing an IndexedPrimitive. For example the x component of a vector quantity.
+    :attribute dorder: DerivativeOrder object representing time and space derivative orders of the primitive used in
+    initialization.
+    :attribute observable: Observable object represented by this class.
+    :attribute rank: int rerpesenting the tensor rank.
+    :attribute complexity: number representing the complexity score of the object.
+    :attribute ndims: number of spatial-temporal dimensions.
+    :attribute nderivs: sum of all derivative orders.
+    :attribute obs_dim: Integer representing the Dimension of the observable/tensor. For example the x component of a
+    velocity field would have this value set to 0.
+    """
+    dim_to_let = {0: 'x', 1: 'y', 2: 'z'}  # Dimensions to letter dictionary
 
-    def __init__(self, prim, space_orders=None, obs_dim=None, newords=None):
-        self.dorder = prim.dorder
+    def __init__(self, prim: Union[LibraryPrimitive, 'IndexedPrimitive'],
+                 space_orders: List[int] = None,
+                 obs_dim: int = None,
+                 newords: List[int] = None):
+        """
+
+        :param prim: Primitive to which initialize the class. It may be a LibraryPrimitive or an IndexedPrimitive.
+        :param space_orders: List containing the order of the spatial derivatives. Ex: [1,2,3] would represent a first
+        order derivative in x, a second order derivative in y, and a third order derivative in z. Only applied when
+        initializng from a LibraryPrimitve.
+        :param obs_dim: Integer representing the Dimension of the observable/tensor. For example the x component of a
+        velocity field would have this value set to 0. Only applied when initializng from a LibraryPrimitve.
+        :param newords: List containing the order of the spatial and time derivatives. Ex: [1,2,3,0] would represent a
+        first order derivative in x, a second order derivative in y, a third order derivative in z, and no time
+        derivatives. Only used when initialized from another IndexedPrimitive.
+        """
+        self.dorder = prim.dorder  # DerivativeOrder object representing time and space derivative orders of prim.
         self.observable = prim.observable
         self.rank = prim.rank
         self.complexity = prim.complexity
@@ -73,6 +127,10 @@ class IndexedPrimitive(LibraryPrimitive):
         self.nderivs = sum(self.dimorders)
 
     def __repr__(self):
+        """
+        IndexedPrimitives are represented as 'dx^idy^jdz^kdt^lO' where O stands for the observable. If the derivative
+        orders (a.k.a. i,j,k,l) are 1, they are ommited, if they are 0 the whole derivative term is ommited.
+        """
         torder = self.dimorders[-1]
         xstring = ""
         for i in range(len(self.dimorders) - 1):
@@ -98,6 +156,10 @@ class IndexedPrimitive(LibraryPrimitive):
         return f'{tstring}{xstring}{self.observable}{dimstring}'
 
     def __eq__(self, other):
+        """
+        Two IndexedPrimitive are deemed equal if they have the same dimension order, observable being represented, and
+        indexed dimension (a.k.a. they correspond to the x component).
+        """
         return (self.dimorders == other.dimorders and self.observable == other.observable
                 and self.obs_dim == other.obs_dim)
 
@@ -108,11 +170,20 @@ class IndexedPrimitive(LibraryPrimitive):
             return IndexedTerm(obs_list=[self, other])
 
     def succeeds(self, other, dim):
+        """
+        Tests if other is a derivative of self in the given dimension (dim).
+        """
         copyorders = self.dimorders.copy()
         copyorders[dim] += 1
         return copyorders == other.dimorders and self.observable == other.observable and self.obs_dim == other.obs_dim
 
     def diff(self, dim):
+        """
+        Returns an IndexedPrimitive with the same properties as self but with an extra derivative order in the given
+        dimension (dim).
+        :param dim: Dimension to take the derivative.
+        :return: IndexedPrimitive with a higher derivative order.
+        """
         newords = self.dimorders.copy()
         newords[dim] += 1
         return IndexedPrimitive(self, newords=newords)
