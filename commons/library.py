@@ -111,3 +111,27 @@ class Observable(object):
 
     def __ne__(self, other):
         return not self.__eq__(other)
+
+
+def create_derivative_string(torder: int, xorder: int) -> (str, str):
+    """
+    Creates a derivative string given a temporal order and a spatial order.
+    :param torder: Temporal derivative order.
+    :param xorder: Spatial Derivative Order.
+    :return: Time derivative string, Spatial derivative string
+    """
+
+    if torder == 0:
+        tstring = ""
+    elif torder == 1:
+        tstring = "dt "
+    else:
+        tstring = f"dt^{torder} "
+    if xorder == 0:
+        xstring = ""
+    elif xorder == 1:
+        xstring = "dx "
+    else:
+        xstring = f"dx^{xorder} "
+
+    return tstring, xstring

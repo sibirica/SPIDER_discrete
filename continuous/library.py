@@ -22,20 +22,7 @@ class LibraryPrimitive(object):
         self.complexity = self.dorder.complexity + 1
 
     def __repr__(self):
-        torder = self.dorder.torder
-        xorder = self.dorder.xorder
-        if torder == 0:
-            tstring = ""
-        elif torder == 1:
-            tstring = "dt "
-        else:
-            tstring = f"dt^{torder} "
-        if xorder == 0:
-            xstring = ""
-        elif xorder == 1:
-            xstring = "dx "
-        else:
-            xstring = f"dx^{xorder} "
+        tstring, xstring = create_derivative_string(self.dorder.torder, self.dorder.xorder)
         return f'{tstring}{xstring}{self.observable}'
 
     # For sorting: convention is (1) in ascending order of name/observable, (2) in *ascending* order of dorder
