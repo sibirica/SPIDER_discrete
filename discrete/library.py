@@ -5,77 +5,7 @@ from itertools import permutations
 from operator import add
 from typing import List
 import numpy as np
-
-
-@dataclass(order=True)
-class CompPair(object):
-    torder: int
-    xorder: int
-    complexity: int = field(init=False)
-
-    def __post_init__(self):
-        self.complexity = self.torder + self.xorder
-
-    def __repr__(self):
-        return f'({self.torder}, {self.xorder})'
-
-
-@dataclass
-class CompList(object):
-    in_list: List[int]
-
-    def __ge__(self, other):
-        for x, y in zip(self.in_list, other.in_list):
-            if x > y:
-                return True
-            elif x < y:
-                return False
-        return True
-
-    def special_bigger(self, other):
-        if 0 in self.in_list and 0 not in other.in_list:
-            return False
-        elif 0 in other.in_list and 0 not in self.in_list:
-            return True
-        else:
-            return self >= other
-
-
-class DerivativeOrder(CompPair):
-    def dt(self):
-        return DerivativeOrder(self.torder + 1, self.xorder)
-
-    def dx(self):
-        return DerivativeOrder(self.torder, self.xorder + 1)
-
-
-@dataclass
-class Observable(object):
-    string: str
-    rank: int
-
-    def __repr__(self):
-        return self.string
-
-    # For sorting: convention is in ascending order of name
-
-    def __lt__(self, other):
-        if not isinstance(other, Observable):
-            raise ValueError("Second argument is not an observable.")
-        return self.string < other.string
-
-    def __gt__(self, other):
-        if not isinstance(other, Observable):
-            raise ValueError("Second argument is not an observable.")
-        return other.__lt__(self)
-
-    def __eq__(self, other):
-        if not isinstance(other, Observable):
-            raise ValueError("Second argument is not an observable.")
-        return self.string == other.string
-
-    def __ne__(self, other):
-        return not self.__eq__(other)
+from commons.library import *
 
 
 dim_to_let = {0: 'x', 1: 'y', 2: 'z'}
