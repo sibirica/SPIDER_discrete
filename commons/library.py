@@ -137,3 +137,22 @@ def create_derivative_string(torder: int, xorder: int) -> (str, str):
         xstring = f"dx^{xorder} "
 
     return tstring, xstring
+
+
+def labels_to_index_list(labels, n):  # n = number of observables
+    index_list = [list() for _ in range(2 * n)]
+    for key in sorted(labels.keys()):
+        for a in labels[key]:
+            index_list[a].append(key)
+    return index_list
+
+
+def index_list_to_labels(index_list):
+    labels = dict()
+    for i, li in enumerate(index_list):
+        for ind in li:
+            if ind in labels.keys():
+                labels[ind].append(i)
+            else:
+                labels[ind] = [i]
+    return labels

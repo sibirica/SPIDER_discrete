@@ -255,25 +255,6 @@ class LibraryTensor(object):  # unindexed version of LibraryTerm
         return reduce(add, repstr)[:-3]
 
 
-def labels_to_index_list(labels, n):  # n = number of observables
-    index_list = [list() for _ in range(2 * n)]
-    for key in sorted(labels.keys()):
-        for a in labels[key]:
-            index_list[a].append(key)
-    return index_list
-
-
-def index_list_to_labels(index_list):
-    labels = dict()
-    for i, li in enumerate(index_list):
-        for ind in li:
-            if ind in labels.keys():
-                labels[ind].append(i)
-            else:
-                labels[ind] = [i]
-    return labels
-
-
 def labels_to_ordered_index_list(labels, ks):
     n = len(ks)
     index_list = [[None] * ks[i] for i in range(n)]
