@@ -1,5 +1,6 @@
 from dataclasses import dataclass, field
 from typing import List
+from itertools import permutations
 
 
 @dataclass(order=True)
@@ -157,6 +158,7 @@ def index_list_to_labels(index_list):
                 labels[ind] = [i]
     return labels
 
+
 def flatten(t):
     return [item for sublist in t for item in sublist]
 
@@ -186,3 +188,17 @@ def is_canonical(indices):
             return False
     return True
 
+
+def get_isomorphic_terms(obs_list, start_order=None):
+    if start_order is None:
+        start_order = list(range(len(obs_list)))
+    if len(obs_list) == 0:
+        yield []
+        return
+    reps = 1
+    prev = obs_list[0]
+    while reps < len(obs_list) and prev == obs_list[reps]:
+        reps += 1
+    for new_list in get_isomorphic_terms(obs_list[reps:], start_order[reps:]):
+        for perm in permutations(start_order[:reps]):
+            yield list(perm) + new_list

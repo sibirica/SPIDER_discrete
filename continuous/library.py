@@ -16,7 +16,12 @@ class LibraryPrimitive(object):
     """
     Object representing a library primitive. Stores the primitive's derivative order, corresponding Observable, rank and
     complexity.
+    :attribute dorder: DerivativeOrder object representing the primitive's spatial and temporal derivative orders.
+    :attribute observable: Observable object storing the observable being referenced by the primitive.
+    :attribute rank: Tensor rank of the primitive.
+    :attribute complexity: Complexity score of the primitive.
     """
+
     dorder: DerivativeOrder
     observable: Observable
     rank: int = field(init=False)
@@ -109,7 +114,7 @@ class IndexedPrimitive(LibraryPrimitive):
         initializng from a LibraryPrimitve.
         :param obs_dim: Integer representing the Dimension of the observable/tensor. For example the x component of a
         velocity field would have this value set to 0. Only applied when initializng from a LibraryPrimitve.
-        :param newords: List containing the order of the spatial and time derivatives. Ex: [1,2,3,0] would represent a
+        :param newords: (New orders) List containing the order of the spatial and time derivatives. Ex: [1,2,3,0] would represent a
         first order derivative in x, a second order derivative in y, a third order derivative in z, and no time
         derivatives. Only used when initialized from another IndexedPrimitive.
         """
@@ -128,7 +133,7 @@ class IndexedPrimitive(LibraryPrimitive):
 
     def __repr__(self):
         """
-        IndexedPrimitives are represented as 'dx^idy^jdz^kdt^lO' where O stands for the observable. If the derivative
+        IndexedPrimitives are represented as 'dx^i dy^j dz^k dt^l O' where O stands for the observable. If the derivative
         orders (a.k.a. i,j,k,l) are 1, they are ommited, if they are 0 the whole derivative term is ommited.
         """
         torder = self.dimorders[-1]
@@ -158,7 +163,7 @@ class IndexedPrimitive(LibraryPrimitive):
     def __eq__(self, other):
         """
         Two IndexedPrimitive are deemed equal if they have the same dimension order, observable being represented, and
-        indexed dimension (a.k.a. they correspond to the x component).
+        indexed dimension (e.g. they both correspond to the x component).
         """
         return (self.dimorders == other.dimorders and self.observable == other.observable
                 and self.obs_dim == other.obs_dim)
@@ -189,7 +194,13 @@ class IndexedPrimitive(LibraryPrimitive):
         return IndexedPrimitive(self, newords=newords)
 
 
-class LibraryTensor(object):  # unindexed version of LibraryTerm
+class LibraryTensor(object):
+    """
+    Unindexed version of LibraryTerm
+    :attribute obs_list: List of observables represented as a list of LibraryPrimitive objects.
+    :attribute rank: Tensor rank of the object.
+    :attribute complexity: Complexity score of the object.
+    """
     def __init__(self, observables):
         # constructor for library terms consisting of a primitive with some derivatives
         if isinstance(observables,
@@ -201,17 +212,30 @@ class LibraryTensor(object):  # unindexed version of LibraryTerm
         self.complexity = sum([obs.complexity for obs in self.obs_list])
 
     def __mul__(self, other):
+        """
+        Multiplying LibraryTensor is defined as combining their observable (LibraryPrimitive) lists.
+        :param other: LibraryTensor to be multiplied by.
+        :return: LibraryTensor resulting from the product.
+        """
         if isinstance(other, LibraryTensor):
             return LibraryTensor(self.obs_list + other.obs_list)
         elif other == 1:
             return self
         else:
-            raise ValueError(f"Cannot multiply {type(self)}, {type(other)}")
+            raise TypeError(f"Cannot multiply {type(self)}, {type(other)}")
 
     def __rmul__(self, other):
+        """
+        Establishes LibraryTensor multiplication as commutative.
+        """
         return self*other
 
     def __repr__(self):
+        """
+        LibraryTensors are represented as the string representation of their observables (LibraryPrimitive) joined by
+        a spaced asterisk (multiplication sign) ' * '. E.g. 'dx^2 f * dt g'
+        :return: String representation of this LibraryTensor.
+        """
         repstr = [str(obs) + ' * ' for obs in self.obs_list]
         return reduce(add, repstr)[:-3]
 
@@ -369,21 +393,6 @@ class LibraryTerm(object):
             terms.append(lt)
         ts = TermSum(terms)
         return ts.canonicalize()
-
-
-def get_isomorphic_terms(obs_list, start_order=None):
-    if start_order is None:
-        start_order = list(range(len(obs_list)))
-    if len(obs_list) == 0:
-        yield []
-        return
-    reps = 1
-    prev = obs_list[0]
-    while reps < len(obs_list) and prev == obs_list[reps]:
-        reps += 1
-    for new_list in get_isomorphic_terms(obs_list[reps:], start_order[reps:]):
-        for perm in permutations(start_order[:reps]):
-            yield list(perm) + new_list
 
 
 class IndexedTerm(object):  # LibraryTerm with i's mapped to x/y/z

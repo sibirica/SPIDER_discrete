@@ -441,21 +441,6 @@ class LibraryTerm(object):
         return ts.canonicalize()
 
 
-def get_isomorphic_terms(obs_list, start_order=None):
-    if start_order is None:
-        start_order = list(range(len(obs_list)))
-    if len(obs_list) == 0:
-        yield []
-        return
-    reps = 1
-    prev = obs_list[0]
-    while reps < len(obs_list) and prev == obs_list[reps]:
-        reps += 1
-    for new_list in get_isomorphic_terms(obs_list[reps:], start_order[reps:]):
-        for perm in permutations(start_order[:reps]):
-            yield list(perm) + new_list
-
-
 class IndexedTerm(object):  # LibraryTerm with i's mapped to x/y/z
     def __init__(self, libterm=None, space_orders=None, nested_obs_dims=None, obs_list=None):
         if obs_list is None:  # normal "from scratch" constructor
