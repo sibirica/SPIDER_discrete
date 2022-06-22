@@ -2,7 +2,7 @@ import copy
 from functools import reduce
 from itertools import permutations
 from operator import add
-from typing import Union, List
+from typing import Union
 
 import numpy as np
 from numpy import inf
@@ -214,36 +214,6 @@ class LibraryTensor(object):  # unindexed version of LibraryTerm
     def __repr__(self):
         repstr = [str(obs) + ' * ' for obs in self.obs_list]
         return reduce(add, repstr)[:-3]
-
-
-def flatten(t):
-    return [item for sublist in t for item in sublist]
-
-
-num_to_let_dict = {0: 'i', 1: 'j', 2: 'k', 3: 'l', 4: 'm', 5: 'n', 6: 'p'}
-let_to_num_dict = {v: k for k, v in num_to_let_dict.items()}  # inverted dict
-
-
-def num_to_let(num_list):
-    return [[num_to_let_dict[i] for i in li] for li in num_list]
-
-
-def canonicalize_indices(indices):
-    curr_ind = 1
-    subs_dict = {0: 0}
-    for num in indices:
-        if num not in subs_dict.keys():
-            subs_dict[num] = curr_ind
-            curr_ind += 1
-    return subs_dict
-
-
-def is_canonical(indices):
-    subs_dict = canonicalize_indices(indices)
-    for key in subs_dict:
-        if subs_dict[key] != key:
-            return False
-    return True
 
 
 # note: be careful not to modify index_list or labels without remaking because the references are reused
