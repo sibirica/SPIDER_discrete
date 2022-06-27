@@ -689,13 +689,7 @@ class Equation(object):  # can represent equation (expression = 0) OR expression
         return self.__repr__() + " = 0"
 
     def __eq__(self, other):
-        for term, ot in zip(self.term_list, other.term_list):
-            if term != ot:
-                return False
-        for coeff, ot in zip(self.coeffs, other.coeffs):
-            if term != ot:
-                return False
-        return True
+        return self.term_list == other.term_list and self.coeffs == other.coeffs
 
     def dt(self):
         components = [coeff * term.dt() for term, coeff in zip(self.term_list, self.coeffs)
@@ -755,7 +749,7 @@ class TermSum(Equation):
 
     def __add__(self, other):
         if isinstance(other, TermSum):
-            return TermSum(self.term_list + other.term_list, self.coeffs + other.coeffs)
+            return TermSum(self.term_list + other.term_list)
         elif isinstance(other, Equation):
             return Equation(self.term_list + other.term_list, self.coeffs + other.coeffs)
         else:
