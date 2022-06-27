@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
-from typing import List
+from typing import List, Dict, Union
 from itertools import permutations
+from collections.abc import Iterable
 
 
 @dataclass(order=True)
@@ -87,6 +88,8 @@ class DerivativeOrder(CompPair):
 class Observable(object):
     """
     Data class object that stores a string representation of an observable as well as its rank.
+    :attribute string: String representation of the observable.
+    :attribute rank: Tensor rank of the observable.
     """
     string: str  # String representing the Observable.
     rank: int  # Derivative rank of the Observable.
@@ -98,18 +101,18 @@ class Observable(object):
 
     def __lt__(self, other):
         if not isinstance(other, Observable):
-            raise TypeError("Second argument is not an observable.")
+            raise TypeError(f"Operation not supported between instances of '{type(self)}' and '{type(other)}'")
         return self.string < other.string
 
     # TODO: This may be redundant. I believe python does this proccess internally.
     def __gt__(self, other):
         if not isinstance(other, Observable):
-            raise TypeError("Second argument is not an observable.")
+            raise TypeError(f"Operation not supported between instances of '{type(self)}' and '{type(other)}'")
         return other.__lt__(self)
 
     def __eq__(self, other):
         if not isinstance(other, Observable):
-            raise TypeError("Second argument is not an observable.")
+            raise TypeError(f"Operation not supported between instances of '{type(self)}' and '{type(other)}'")
         return self.string == other.string
 
     def __ne__(self, other):
@@ -140,7 +143,14 @@ def create_derivative_string(torder: int, xorder: int) -> (str, str):
     return tstring, xstring
 
 
-def labels_to_index_list(labels, n):  # n = number of observables
+def labels_to_index_list(labels: Dict[int, List[int]], n: int) -> List[List[int]]:
+    """
+    Transform a labels representation of the indexes of a LibraryTerm to its corresponding index_list representation.
+    https://github.com/sibirica/SPIDER_discrete/wiki/Index-Lists-and-Labels
+    :param labels: Dictionary representation of the indexes of a LibraryTerm
+    :param n: Number of observables.
+    :return: The corresponding index_list.
+    """
     index_list = [list() for _ in range(2 * n)]
     for key in sorted(labels.keys()):
         for a in labels[key]:
@@ -148,7 +158,13 @@ def labels_to_index_list(labels, n):  # n = number of observables
     return index_list
 
 
-def index_list_to_labels(index_list):
+def index_list_to_labels(index_list: List[List[int]]) -> Dict[int, List[int]]:
+    """
+    Transforms an index_list representation of the indexes of a LibraryTerm to its corresponding labels representation.
+    https://github.com/sibirica/SPIDER_discrete/wiki/Index-Lists-and-Labels
+    :param index_list: List representation of the indexes of a LibraryTerm
+    :return: The corresponding labels dictionary.
+    """
     labels = dict()
     for i, li in enumerate(index_list):
         for ind in li:
@@ -159,7 +175,13 @@ def index_list_to_labels(index_list):
     return labels
 
 
-def flatten(t):
+def flatten(t: List[Union[list, tuple]]):
+    """
+    Removes one level of nesting from a List where every item is also a List or Tuple.
+    E.g. flatten([[1, 2], [0, 3], [1, 1], (2, 0)]) returns [1, 2, 0, 3, 1, 1, 2, 0].
+    :param t: Nested list.
+    :return: Flattened list.
+    """
     return [item for sublist in t for item in sublist]
 
 
@@ -167,7 +189,12 @@ num_to_let_dict = {0: 'i', 1: 'j', 2: 'k', 3: 'l', 4: 'm', 5: 'n', 6: 'p'}
 let_to_num_dict = {v: k for k, v in num_to_let_dict.items()}  # inverted dict
 
 
-def num_to_let(num_list):
+def num_to_let(num_list: List[List[int]]) -> List[List[str]]:
+    """
+    Transforms a list of lists of int indexes into the respective list of lists of letter indexes.
+    :param num_list: List of lists of int indexes.
+    :return: Corresponding list of lists of str indexes.
+    """
     return [[num_to_let_dict[i] for i in li] for li in num_list]
 
 

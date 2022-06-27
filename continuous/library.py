@@ -1,8 +1,6 @@
 import copy
 from functools import reduce
-from itertools import permutations
 from operator import add
-from typing import Union
 
 import numpy as np
 from numpy import inf
@@ -114,9 +112,9 @@ class IndexedPrimitive(LibraryPrimitive):
         initializng from a LibraryPrimitve.
         :param obs_dim: Integer representing the Dimension of the observable/tensor. For example the x component of a
         velocity field would have this value set to 0. Only applied when initializng from a LibraryPrimitve.
-        :param newords: (New orders) List containing the order of the spatial and time derivatives. Ex: [1,2,3,0] would represent a
-        first order derivative in x, a second order derivative in y, a third order derivative in z, and no time
-        derivatives. Only used when initialized from another IndexedPrimitive.
+        :param newords: (New orders) List containing the order of the spatial and time derivatives. Ex: [1,2,3,0] would
+        represent afirst order derivative in x, a second order derivative in y, a third order derivative in z, and no
+        time derivatives. Only used when initialized from another IndexedPrimitive.
         """
         self.dorder = prim.dorder  # DerivativeOrder object representing time and space derivative orders of prim.
         self.observable = prim.observable
@@ -133,8 +131,8 @@ class IndexedPrimitive(LibraryPrimitive):
 
     def __repr__(self):
         """
-        IndexedPrimitives are represented as 'dx^i dy^j dz^k dt^l O' where O stands for the observable. If the derivative
-        orders (a.k.a. i,j,k,l) are 1, they are ommited, if they are 0 the whole derivative term is ommited.
+        IndexedPrimitives are represented as 'dx^i dy^j dz^k dt^l O' where O stands for the observable. If the
+        derivative orders (a.k.a. i,j,k,l) are 1, they are ommited, if they are 0 the whole derivative term is ommited.
         """
         torder = self.dimorders[-1]
         xstring = ""
@@ -196,7 +194,7 @@ class IndexedPrimitive(LibraryPrimitive):
 
 class LibraryTensor(object):
     """
-    Unindexed version of LibraryTerm
+    Unindexed version of LibraryTerm. May also store products of observables as a list of LibraryPrimitive objects.
     :attribute obs_list: List of observables represented as a list of LibraryPrimitive objects.
     :attribute rank: Tensor rank of the object.
     :attribute complexity: Complexity score of the object.
@@ -242,9 +240,31 @@ class LibraryTensor(object):
 
 # note: be careful not to modify index_list or labels without remaking because the references are reused
 class LibraryTerm(object):
+    """
+    Represents a single library term, which consists of differential operators, observables, their order, alongside with
+    any free and summation indexes.
+    NOTE: be careful not to modify index_list or labels without remaking because the references are reused!
+    :attribute canon_dict: Stores ambiguous canonicalizations (which shouldn't exist for less than 6 indices).
+    :attribute obs_list: List of observables represented as a list of LibraryPrimitive objects.
+    :attribute libtensor: LibraryTensor object storing observables.
+    :attribute rank: Tensor rank of the object. In this system we only have rank 0 and 1 tensor. Rank changes after
+    contraction.
+    :attribute complexity: Complexity score of the object.
+    :attribute labels: The indexes of the Observables and its differentials represented as a Dict[List[int]].
+    :attribute index_list: The indexes of the Observables and its differentials represented as a List[List[int]].
+    https://github.com/sibirica/SPIDER_discrete/wiki/Index-Lists-and-Labels
+    :attribute der_index_list: Similar to index_list, but only contains derivative indexes.
+    :attribute obs_index_list: Similar to index_list, but only contains observable indexes.
+    :attribute is_canonical: TODO
+    """
     canon_dict = dict()  # used to store ambiguous canonicalizations (which shouldn't exist for less than 6 indices)
 
-    def __init__(self, libtensor, labels=None, index_list=None):
+    def __init__(self, libtensor: LibraryTensor,
+                 labels: Dict[int, List[int]] = None,
+                 index_list: List[List[int]] = None):
+        if (labels is None) and (index_list is None):
+            raise ValueError("LibraryTerm must be initialized with either a labels dictionary or an index_list. Neither"
+                             " were provided.")
         self.obs_list = libtensor.obs_list
         self.libtensor = libtensor
         self.rank = (libtensor.rank % 2)
