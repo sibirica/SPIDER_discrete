@@ -18,9 +18,16 @@ def sparse_reg(Theta, opts=None, threshold='pareto', brute_force=True, delta=1e-
             #if rownm != 0:
             #    Theta[row, :] *= (row_norms[row]/rownm)
             Theta[row, :] *= row_norms[row]
-    
-    if anchor_col is None:
+    if char_sizes is not None: # do this here: char_sizes are indexed by full column set
+        char_sizes = np.array(char_sizes)
+        char_sizes /= np.max(char_sizes)
+        for term in range(len(char_sizes)):
+            Theta[:, term] = Theta[:, term] / char_sizes[term] # renormalize by characteristic size
+    if anchor_col is None: # do this exactly here: when we divide by Thetanm later, we work with the normalized columns
         Thetanm = np.linalg.norm(Theta)
+    else: # do this here: anchor_col is also indexed by full columns set
+        Thetanm = np.linalg.norm(Theta[:, anchor_col])
+    
     if subinds is not None:
         if subinds == []: # no inds allowed at all
             return None, np.inf, None, np.inf
@@ -54,8 +61,6 @@ def sparse_reg(Theta, opts=None, threshold='pareto', brute_force=True, delta=1e-
             Theta[:, term] = Theta[:, term] / char_sizes[term] # renormalize by characteristic size
     #print('char_sizes:', char_sizes)
     #print(Theta[0, :])
-    if anchor_col is not None:
-        Thetanm = np.linalg.norm(Theta[:, anchor_col])
 
     U, Sigma, V = np.linalg.svd(Theta, full_matrices=True)
     V = V.transpose() # since numpy SVD returns the transpose
