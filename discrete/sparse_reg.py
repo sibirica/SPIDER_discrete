@@ -35,9 +35,6 @@ def sparse_reg(Theta, opts=None, threshold='pareto', brute_force=True, delta=1e-
         if char_sizes is not None:
             char_sizes = np.array(char_sizes)
             char_sizes = char_sizes[subinds]
-        if row_norms is not None:
-            row_norms = np.array(row_norms)
-            row_norms = row_norms[subinds]
         if valid_single is not None:
             valid_single = np.array(valid_single)
             valid_single = valid_single[subinds]
@@ -52,15 +49,6 @@ def sparse_reg(Theta, opts=None, threshold='pareto', brute_force=True, delta=1e-
     
     if valid_single is None:
         valid_single = np.ones(shape=(w, 1))
-        
-    if char_sizes is not None:
-        char_sizes = np.array(char_sizes)
-        char_sizes /= np.max(char_sizes)
-        for term in range(len(char_sizes)):
-            #char_sizes[term] = np.linalg.norm(Theta[:, term]) # check what happens if all columns treated "equally"
-            Theta[:, term] = Theta[:, term] / char_sizes[term] # renormalize by characteristic size
-    #print('char_sizes:', char_sizes)
-    #print(Theta[0, :])
 
     U, Sigma, V = np.linalg.svd(Theta, full_matrices=True)
     V = V.transpose() # since numpy SVD returns the transpose

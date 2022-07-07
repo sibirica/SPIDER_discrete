@@ -36,9 +36,6 @@ def sparse_reg(Theta, opts=None, threshold='pareto', brute_force=True, delta=1e-
         if char_sizes is not None:
             char_sizes = np.array(char_sizes)
             char_sizes = char_sizes[subinds]
-        if row_norms is not None:
-            row_norms = np.array(row_norms)
-            row_norms = row_norms[subinds]
         if valid_single is not None:
             valid_single = np.array(valid_single)
             valid_single = valid_single[subinds]        
