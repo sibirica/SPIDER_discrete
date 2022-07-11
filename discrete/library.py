@@ -119,6 +119,7 @@ class CoarseGrainedPrimitive(object):  # represents rho[product of obs_list]
         return True
 
 
+# noinspection PyArgumentList
 @dataclass
 class LibraryPrimitive(object):
     dorder: DerivativeOrder

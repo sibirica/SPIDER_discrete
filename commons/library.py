@@ -1,7 +1,8 @@
 from dataclasses import dataclass, field
 from typing import List, Dict, Union
 from itertools import permutations
-from collections.abc import Iterable
+
+import numpy as np
 
 
 @dataclass(order=True)
@@ -87,7 +88,9 @@ class DerivativeOrder(CompPair):
 @dataclass
 class Observable(object):
     """
-    Data class object that stores a string representation of an observable as well as its rank.
+    Data class object that stores a string representation of an observable as well as its rank. For documentation
+    purposes, this class will always be refered to as 'Observable' (capitalized), unless stated otherwise. Furthermore,
+    the term 'observable' usually does NOT refer to this class, but rather to a LibraryPrimitive object.
     :attribute string: String representation of the observable.
     :attribute rank: Tensor rank of the observable.
     """
@@ -229,3 +232,97 @@ def get_isomorphic_terms(obs_list, start_order=None):
     for new_list in get_isomorphic_terms(obs_list[reps:], start_order[reps:]):
         for perm in permutations(start_order[:reps]):
             yield list(perm) + new_list
+
+
+def compress(labels):
+    local_copy = []
+    skip = False
+    for i in range(len(labels)):
+        if i < len(labels) - 1 and labels[i] == labels[i + 1]:
+            local_copy.append(labels[i] + '^2')
+            skip = True
+        elif not skip:
+            local_copy.append(labels[i])
+        else:
+            skip = False
+    return local_copy
+
+
+# make a dictionary of how paired indices are placed
+def place_pairs(*rank_array, min_ind2=0, curr_ind=1, start=0, answer_dict=None):
+    if answer_dict is None:
+        answer_dict = dict()
+    while rank_array[start] <= 0:
+        start += 1
+        min_ind2 = 0
+        if start >= len(rank_array):
+            yield answer_dict
+            return
+    ind1 = start
+    for ind2 in range(min_ind2, len(rank_array)):
+        if (ind1 == ind2 and rank_array[ind1] == 1) or rank_array[ind2] == 0:
+            continue
+        min_ind2 = ind2
+        dict1 = answer_dict.copy()
+        dict1.update({curr_ind: (ind1, ind2)})
+        copy_array = np.array(rank_array)
+        copy_array[ind1] -= 1
+        copy_array[ind2] -= 1
+        yield from place_pairs(*copy_array, min_ind2=min_ind2, curr_ind=curr_ind + 1, start=start, answer_dict=dict1)
+
+
+def place_indices(*rank_array):
+    # only paired indices allowed
+    if sum(rank_array) % 2 == 0:
+        yield from place_pairs(*rank_array)
+    # one single index
+    else:
+        for single_ind in range(len(rank_array)):
+            if rank_array[single_ind] > 0:
+                copy_array = np.array(rank_array)
+                copy_array[single_ind] -= 1
+                yield from place_pairs(*copy_array, answer_dict={0: (single_ind,)})
+
+
+def list_labels(tensor):
+    rank_array = []
+    for term in tensor.obs_list:
+        rank_array.append(term.dorder.xorder)
+        rank_array.append(term.observable.rank)
+    return [output_dict for output_dict in place_indices(*rank_array) if test_valid_label(output_dict, tensor.obs_list)]
+
+
+# check if index labeling is invalid (i.e. not in non-decreasing order among identical terms)
+# this excludes more incorrect options early than is_canonical
+# the lexicographic ordering rule fails at N=6 but this is accounted for by the canonicalization
+def test_valid_label(output_dict, obs_list):
+    if len(output_dict.keys()) < 2:  # not enough indices for something to be invalid
+        return True
+    # this can be implemented more efficiently, but the cost is negligible for reasonably small N
+    bins = []  # bin observations according to equality
+    for obs in obs_list:
+        found_match = False
+        for bi in bins:
+            if bi is not None and obs == bi[0]:
+                bi.append(obs)
+                found_match = True
+        if not found_match:
+            bins.append([obs])
+    if len(bins) == len(obs_list):
+        return True  # no repeated values
+    # else need to check more carefully
+    n = len(obs_list)
+    index_list = labels_to_index_list(output_dict, n)
+    for i in range(n):
+        for j in range(i + 1, n):
+            if obs_list[i] == obs_list[j]:
+                clist1 = CompList(index_list[2 * i] + index_list[2 * i + 1])
+                clist2 = CompList(index_list[2 * j] + index_list[2 * j + 1])
+                if not clist2.special_bigger(clist1):  # if (lexicographic) order decreases OR i appears late
+                    return False
+    return True
+
+
+rho = Observable('rho', 0)
+v = Observable('v', 1)
+

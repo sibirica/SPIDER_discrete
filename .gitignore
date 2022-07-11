@@ -21,3 +21,4 @@ pip-delete-this-directory.txt
 *.mat
 /data
 continuous/NSE2D
+/testscript.py

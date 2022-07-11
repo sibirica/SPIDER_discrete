@@ -1,7 +1,7 @@
 import copy
 from functools import reduce
 from operator import add
-
+from typing import List, Dict, Union
 import numpy as np
 from numpy import inf
 
@@ -13,15 +13,14 @@ from commons.library import *
 class LibraryPrimitive(object):
     """
     Object representing a library primitive. Stores the primitive's derivative order, corresponding Observable, rank and
-    complexity.
+    complexity. The term 'observable' usually refers to this class rather than an Observable object.
     :attribute dorder: DerivativeOrder object representing the primitive's spatial and temporal derivative orders.
     :attribute observable: Observable object storing the observable being referenced by the primitive.
     :attribute rank: Tensor rank of the primitive.
     :attribute complexity: Complexity score of the primitive.
     """
-
-    dorder: DerivativeOrder
-    observable: Observable
+    dorder: DerivativeOrder = None
+    observable: Observable = None
     rank: int = field(init=False)
     complexity: int = field(init=False)
 
@@ -224,9 +223,12 @@ class LibraryTensor(object):
 
     def __rmul__(self, other):
         """
-        Establishes LibraryTensor multiplication as commutative.
+        Establishes LibraryTensor multiplication as commutative, with 1 as identity.
         """
-        return self*other
+        if other != 1:
+            return other.__mul__(self)
+        else:
+            return self
 
     def __repr__(self):
         """
@@ -238,7 +240,6 @@ class LibraryTensor(object):
         return reduce(add, repstr)[:-3]
 
 
-# note: be careful not to modify index_list or labels without remaking because the references are reused
 class LibraryTerm(object):
     """
     Represents a single library term, which consists of differential operators, observables, their order, alongside with
@@ -262,19 +263,23 @@ class LibraryTerm(object):
     def __init__(self, libtensor: LibraryTensor,
                  labels: Dict[int, List[int]] = None,
                  index_list: List[List[int]] = None):
+
         if (labels is None) and (index_list is None):
             raise ValueError("LibraryTerm must be initialized with either a labels dictionary or an index_list. Neither"
                              " were provided.")
+
         self.obs_list = libtensor.obs_list
         self.libtensor = libtensor
         self.rank = (libtensor.rank % 2)
         self.complexity = libtensor.complexity
+
         if labels is not None:  # from labels constructor
             self.labels = labels  # dictionary: key = index #, value(s) = location of index among 2n bins
             self.index_list = labels_to_index_list(labels, len(self.obs_list))
         else:  # from index_list constructor
             self.index_list = index_list
             self.labels = index_list_to_labels(index_list)
+
         self.der_index_list = self.index_list[0::2]
         self.obs_index_list = self.index_list[1::2]
         self.is_canonical = None
@@ -286,31 +291,79 @@ class LibraryTerm(object):
             return TermSum([self] + other.term_list)
 
     def __eq__(self, other):
+        """
+        Explicitly defines the == (equals) operation between two LibraryTerm objects.
+        Two LibraryTerm objects are deemed equal if they have the same observable (LibraryPrimitive) list (order
+        sensitive) and index_list.
+        NOTE: assumes both LibraryTerm are in canonical form.
+        :param other: LibraryTerm to compare equality with.
+        :return: Comparison test result.
+        """
         if isinstance(other, LibraryTerm):
             return self.obs_list == other.obs_list and self.index_list == other.index_list
         else:
             return False
 
     def __ne__(self, other):
+        """
+        Explicity defines the != (not equals) operator as the negation of the == (equals) operator for LibraryTerms.
+        NOTE: assumes both LibraryTerm are in canonical form.
+        :param other: LibraryTerm to compare inequality equality with.
+        :return: Comparison test result.
+        """
         return not self.__eq__(other)
 
     def __lt__(self, other):
+        """
+        Explicity defines the < (lesser than) operator between a LibraryTensor and another object with string
+        representation. The comparison result is the same as if it was applied to the objects' string representation.
+        :param other: Object to compare inequality with.
+        :return: Comparison test results.
+        """
         return str(self) < str(other)
 
     def __gt__(self, other):
+        """
+        Explicity defines the > (greater than) operator between a LibraryTensor and another object with string
+        representation. The comparison result is the same as if it was applied to the objects' string representation.
+        :param other: Object to compare inequality with.
+        :return: Comparison test results.
+        """
         return str(self) > str(other)
 
     def __repr__(self):
+        """
+        Defines the representation of a LibraryTerm as a concatenation of indexed LibraryPrimitive representations
+        joined by ` * `. For more details see the label_repr() function.
+        :return: String representation of self.
+        """
         repstr = [label_repr(obs, ind1, ind2) + ' * ' for (obs, ind1, ind2) in
                   zip(self.obs_list, num_to_let(self.der_index_list), num_to_let(self.obs_index_list))]
         return reduce(add, repstr)[:-3]
 
     def __hash__(self):  # it's nice to be able to use LibraryTerms in sets or dicts
+        """
+        A Library Term's hash is the hash of its string representation.
+        NOTE: Comparing LibraryTerms with hashes is only conclusive when applied between the hashes generated from
+        canonical LibraryTerms.
+        :return: The Library Term's hash.
+        """
         return hash(self.__repr__())
 
+    # TODO: Move common functionality to commons.
     def __mul__(self, other):
+        """
+        This method explicity defines the * (multiplication) operator for LibraryTerm, when the object is on the left of
+        the operand.
+        The multiplication operation can be thought of as the scalar product. Multiplying a scalar by a scalar yields a
+        scalar, a scalar by a vector yield a vector, and a vector by a vector yields a scalar.
+        NOTE: The product is always returned in canonical form.
+        :param other: Object to be multiplied by.
+        :return: Product of self*other.
+        """
         if isinstance(other, LibraryTerm):
             if self.rank < other.rank:
+                # Multiplying by scalars is less computationally intensive.
                 return other.__mul__(self)
             if len(self.labels.keys()) > 0:
                 shift = max(self.labels.keys())
@@ -323,15 +376,22 @@ class LibraryTerm(object):
             return LibraryTerm(LibraryTensor(a.obs_list + b.obs_list),
                                index_list=a.index_list + b.index_list).canonicalize()
         elif str(other) == "1":
+            # Defines 1 as the identity of multiplication operation in LibraryTerms
             return self
         elif isinstance(other, Equation):
             return other.__mul__(self)
         else:
-            raise ValueError(f"Cannot multiply {type(self)}, {type(other)}")
+            raise TypeError(f"Cannot multiply {type(self)}, {type(other)}")
 
     def __rmul__(self, other):
+        """
+        Explicity defines multiplication as commutative.
+        :param other: Object to be multiplied by.
+        :return: Product.
+        """
         return self.__mul__(other)
 
+    # TODO: Move common functionality to commons.
     def structure_canonicalize(self):
         indexed_zip = zip(self.obs_list, self.der_index_list, self.obs_index_list)
         sorted_zip = sorted(indexed_zip, key=lambda x: x[0])
@@ -354,6 +414,7 @@ class LibraryTerm(object):
             return self
         return LibraryTerm(self.libtensor, index_list=new_index_list)
 
+    # TODO: Move common functionality to commons.
     def reorder(self, template):
         indexed_zip = zip(self.obs_list, self.der_index_list, self.obs_index_list, template)
         sorted_zip = sorted(indexed_zip, key=lambda x: x[3])
@@ -364,6 +425,7 @@ class LibraryTerm(object):
         sorted_libtens = LibraryTensor(sorted_obs)
         return LibraryTerm(sorted_libtens, index_list=sorted_ind)
 
+    # TODO: Move common functionality to commons.
     def canonicalize(self):  # return canonical representation and set is_canonical flag (used to determine if valid)
         str_canon = self.structure_canonicalize()
         if str_canon in self.canon_dict:
@@ -476,7 +538,20 @@ class ConstantTerm(IndexedTerm):
         return "1"
 
 
-def label_repr(prim, ind1, ind2):
+def label_repr(prim: LibraryPrimitive, ind1: List[str], ind2: List[str]) -> str:
+    """
+    Given a LibraryPrimitive, the list of differencial indexes, and its list of indexes. Returns a formatted string of
+    its representation.
+    A Library Primitive is represented by its time derivative(if any) with respective order(if greater than one),
+    followed by its spatial derivative (if any) with respective index and order (if greater than one), followed by the
+    observable representation with respective index (if any, only for rank 1 tensors).
+    NOTE: Indexes are stored in order-sensitive lists. For consistent representation of library terms use canonicalized
+    objects.
+    :param prim:
+    :param ind1: List of Derivative Indexes
+    :param ind2: List of Observable Indexes
+    :return: String representation of this indexed LibraryPrimitive.
+    """
     torder = prim.dorder.torder
     xorder = prim.dorder.xorder
     obs = prim.observable
@@ -499,95 +574,7 @@ def label_repr(prim, ind1, ind2):
     return tstring + xstring + obstring
 
 
-def compress(labels):
-    local_copy = []
-    skip = False
-    for i in range(len(labels)):
-        if i < len(labels) - 1 and labels[i] == labels[i + 1]:
-            local_copy.append(labels[i] + '^2')
-            skip = True
-        elif not skip:
-            local_copy.append(labels[i])
-        else:
-            skip = False
-    return local_copy
-
-
-# make a dictionary of how paired indices are placed
-def place_pairs(*rank_array, min_ind2=0, curr_ind=1, start=0, answer_dict=None):
-    if answer_dict is None:
-        answer_dict = dict()
-    while rank_array[start] <= 0:
-        start += 1
-        min_ind2 = 0
-        if start >= len(rank_array):
-            yield answer_dict
-            return
-    ind1 = start
-    for ind2 in range(min_ind2, len(rank_array)):
-        if (ind1 == ind2 and rank_array[ind1] == 1) or rank_array[ind2] == 0:
-            continue
-        min_ind2 = ind2
-        dict1 = answer_dict.copy()
-        dict1.update({curr_ind: (ind1, ind2)})
-        copy_array = np.array(rank_array)
-        copy_array[ind1] -= 1
-        copy_array[ind2] -= 1
-        yield from place_pairs(*copy_array, min_ind2=min_ind2, curr_ind=curr_ind + 1, start=start, answer_dict=dict1)
-
-
-def place_indices(*rank_array):
-    # only paired indices allowed
-    if sum(rank_array) % 2 == 0:
-        yield from place_pairs(*rank_array)
-    # one single index
-    else:
-        for single_ind in range(len(rank_array)):
-            if rank_array[single_ind] > 0:
-                copy_array = np.array(rank_array)
-                copy_array[single_ind] -= 1
-                yield from place_pairs(*copy_array, answer_dict={0: (single_ind,)})
-
-
-def list_labels(tensor):
-    rank_array = []
-    for term in tensor.obs_list:
-        rank_array.append(term.dorder.xorder)
-        rank_array.append(term.observable.rank)
-    return [output_dict for output_dict in place_indices(*rank_array) if test_valid_label(output_dict, tensor.obs_list)]
-
-
-# check if index labeling is invalid (i.e. not in non-decreasing order among identical terms)
-# this excludes more incorrect options early than is_canonical
-# the lexicographic ordering rule fails at N=6 but this is accounted for by the canonicalization
-def test_valid_label(output_dict, obs_list):
-    if len(output_dict.keys()) < 2:  # not enough indices for something to be invalid
-        return True
-    # this can be implemented more efficiently, but the cost is negligible for reasonably small N
-    bins = []  # bin observations according to equality
-    for obs in obs_list:
-        found_match = False
-        for bi in bins:
-            if bi is not None and obs == bi[0]:
-                bi.append(obs)
-                found_match = True
-        if not found_match:
-            bins.append([obs])
-    if len(bins) == len(obs_list):
-        return True  # no repeated values
-    # else need to check more carefully
-    n = len(obs_list)
-    index_list = labels_to_index_list(output_dict, n)
-    for i in range(n):
-        for j in range(i + 1, n):
-            if obs_list[i] == obs_list[j]:
-                clist1 = CompList(index_list[2 * i] + index_list[2 * i + 1])
-                clist2 = CompList(index_list[2 * j] + index_list[2 * j + 1])
-                if not clist2.special_bigger(clist1):  # if (lexicographic) order decreases OR i appears late
-                    return False
-    return True
-
-
+# noinspection PyArgumentList
 def raw_library_tensors(observables, obs_orders, nt, nx, max_order=DerivativeOrder(inf, inf), zeroidx=0):
     # print(obs_orders, nt, nx, max_order)
     while obs_orders[zeroidx] == 0:
@@ -614,10 +601,6 @@ def raw_library_tensors(observables, obs_orders, nt, nx, max_order=DerivativeOrd
                     do = DerivativeOrder(inf, inf)
                 for term2 in raw_library_tensors(observables, new_orders, nt - i, nx - j, do, zeroidx):
                     yield term2 * term1  # reverse back to ascending order here
-
-
-rho = Observable('rho', 0)
-v = Observable('v', 1)
 
 
 def generate_terms_to(order, observables=None, max_observables=999):
