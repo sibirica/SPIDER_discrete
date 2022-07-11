@@ -1,3 +1,2 @@
 # SPIDER_discrete
-
-Generalized sparse regression for continuous and discrete data
+ Generalized sparse regression for continuous and discrete data
