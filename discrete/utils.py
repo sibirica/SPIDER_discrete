@@ -1,17 +1,19 @@
-import numpy as np
 from library import *
+
 
 def save(filename, *args):
     with open(filename, 'wb') as f:
         for arr in args:
             np.save(f, arr, allow_pickle=True)
-            
+
+
 def load(filename, nload):
     to_load = []
     with open(filename, 'rb') as f:
         for i in range(nload):
             to_load.append(np.load(f, allow_pickle=True))
     return tuple(to_load)
+
 
 # Notes: this requires observables to already be constructed;
 # no power abbreviations
@@ -48,14 +50,14 @@ def construct_from_string(input_str, type_str, obs_dict):
         token_list = input_str.split(" @ ")
         obs_list = []
         index_list = []
-        for token in token_list: 
+        for token in token_list:
             obs, inds1, inds2 = term_plus_inds(token, obs_dict)
             obs_list.append(obs)
             index_list = index_list + [inds1, inds2]
         lt = LibraryTensor(obs_list)
         return LibraryTerm(lt, index_list=index_list)
-    #elif type_str == "IndexedTerm":
-        # not implemented until it seems useful
+    # elif type_str == "IndexedTerm":
+    # not implemented until it seems useful
     elif type_str == "Equation" or type_str == "EQ":
         term_list = []
         coeffs = []
@@ -77,7 +79,8 @@ def construct_from_string(input_str, type_str, obs_dict):
         return Equation(term_list, coeffs)
     else:
         raise ValueError(type_str + " is not a valid option.")
-        
+
+
 def term_plus_inds(string, obs_dict):
     inds1 = []
     inds2 = []
