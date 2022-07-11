@@ -198,6 +198,7 @@ class LibraryTensor(object):
     :attribute rank: Tensor rank of the object.
     :attribute complexity: Complexity score of the object.
     """
+
     def __init__(self, observables):
         # constructor for library terms consisting of a primitive with some derivatives
         if isinstance(observables,
@@ -514,21 +515,21 @@ class IndexedTerm(object):  # LibraryTerm with i's mapped to x/y/z
             return IndexedTerm(obs_list=self.obs_list + [other])
 
     def drop(self, obs):
-        #print(self.obs_list)
+        # print(self.obs_list)
         obs_list_copy = copy.deepcopy(self.obs_list)
-        if len(obs_list_copy)>1:
+        if len(obs_list_copy) > 1:
             obs_list_copy.remove(obs)
         else:
             obs_list_copy = []
         return IndexedTerm(obs_list=obs_list_copy)
-    
-    def drop_all(self, obs): # remove *aLL* instances of obs
-        if len(self.obs_list)>1:
+
+    def drop_all(self, obs):  # remove *aLL* instances of obs
+        if len(self.obs_list) > 1:
             obs_list_copy = list(filter(obs.__ne__, self.obs_list))
         else:
             obs_list_copy = []
         return IndexedTerm(obs_list=obs_list_copy)
-    
+
     def diff(self, dim):
         for i, obs in enumerate(self.obs_list):
             yield obs.diff(dim) * self.drop(obs)
@@ -543,14 +544,16 @@ class ConstantTerm(IndexedTerm):
 
     def __repr__(self):
         return "1"
-    
-    def dt(self):
+
+    @staticmethod
+    def dt():
         return None
-    
-    def dx(self):
+
+    @staticmethod
+    def dx():
         return None
-    
-    
+
+
 def label_repr(prim: LibraryPrimitive, ind1: List[str], ind2: List[str]) -> str:
     """
     Given a LibraryPrimitive, the list of differencial indexes, and its list of indexes. Returns a formatted string of
@@ -670,10 +673,10 @@ class Equation(object):  # can represent equation (expression = 0) OR expression
 
     def __rmul__(self, other):
         if isinstance(other, LibraryTerm):
-            return Equation([(other*term).canonicalize() for term in self.term_list], self.coeffs)
-        else: # multiplication by number
-            return Equation(self.term_list, [other*c for c in self.coeffs])
-        
+            return Equation([(other * term).canonicalize() for term in self.term_list], self.coeffs)
+        else:  # multiplication by number
+            return Equation(self.term_list, [other * c for c in self.coeffs])
+
     def __mul__(self, other):
         return self.__rmul__(other)
 
@@ -690,14 +693,14 @@ class Equation(object):  # can represent equation (expression = 0) OR expression
     def dt(self):
         components = [coeff * term.dt() for term, coeff in zip(self.term_list, self.coeffs)
                       if not isinstance(term, ConstantTerm)]
-        if components == []:
+        if not components:
             return None
         return reduce(add, components).canonicalize()
 
     def dx(self):
         components = [coeff * term.dx() for term, coeff in zip(self.term_list, self.coeffs)
                       if not isinstance(term, ConstantTerm)]
-        if components == []:
+        if not components:
             return None
         return reduce(add, components).canonicalize()
 

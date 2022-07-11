@@ -54,8 +54,8 @@ class CoarseGrainedPrimitive(object):  # represents rho[product of obs_list]
             if a == b:
                 continue
             else:
-                return a<b
-        return len(self.obs_list)<len(other.obs_list)
+                return a < b
+        return len(self.obs_list) < len(other.obs_list)
 
     # TODO: This may be redundant. I believe python does this proccess internally.
     def __gt__(self, other):
@@ -475,23 +475,23 @@ class IndexedTerm(object):  # LibraryTerm with i's mapped to x/y/z
         if isinstance(other, IndexedTerm):
             return IndexedTerm(obs_list=self.obs_list + other.obs_list)
         else:
-            return IndexedTerm(obs_list=self.obs_list+[other])
-    
-    def drop(self, obs): # remove one instance of obs
+            return IndexedTerm(obs_list=self.obs_list + [other])
+
+    def drop(self, obs):  # remove one instance of obs
         obs_list_copy = copy.deepcopy(self.obs_list)
-        if len(obs_list_copy)>1:
+        if len(obs_list_copy) > 1:
             obs_list_copy.remove(obs)
         else:
             obs_list_copy = []
         return IndexedTerm(obs_list=obs_list_copy)
-    
-    def drop_all(self, obs): # remove *aLL* instances of obs
-        if len(self.obs_list)>1:
+
+    def drop_all(self, obs):  # remove *aLL* instances of obs
+        if len(self.obs_list) > 1:
             obs_list_copy = list(filter(obs.__ne__, self.obs_list))
         else:
             obs_list_copy = []
         return IndexedTerm(obs_list=obs_list_copy)
-    
+
     def diff(self, dim):
         for i, obs in enumerate(self.obs_list):
             yield obs.diff(dim) * self.drop(obs)
@@ -516,13 +516,15 @@ class ConstantTerm(IndexedTerm):
 
     def __rmul__(self, other):
         return other
-    
-    def dt(self):
+
+    @staticmethod
+    def dt():
         return None
-    
-    def dx(self):
+
+    @staticmethod
+    def dx():
         return None
-    
+
 
 def label_repr(prim, ind1, ind2):
     torder = prim.dorder.torder
@@ -542,99 +544,6 @@ def label_repr(prim, ind1, ind2):
         xlist = [f"d{letter} " for letter in ind1]
         xstring = reduce(add, xlist)
     return tstring + xstring + cgp.index_str(ind2)
-
-
-def compress(labels):
-    local_copy = []
-    skip = False
-    for i in range(len(labels)):
-        if i < len(labels) - 1 and labels[i] == labels[i + 1]:
-            local_copy.append(labels[i] + '^2')
-            skip = True
-        elif not skip:
-            local_copy.append(labels[i])
-        else:
-            skip = False
-    return local_copy
-
-
-# make a dictionary of how paired indices are placed
-def place_pairs(*rank_array, min_ind2=0, curr_ind=1, start=0, answer_dict=None):
-    if answer_dict is None:
-        answer_dict = dict()
-    while rank_array[start] <= 0:
-        start += 1
-        min_ind2 = 0
-        if start >= len(rank_array):
-            yield answer_dict
-            return
-    ind1 = start
-    for ind2 in range(min_ind2, len(rank_array)):
-        if (ind1 == ind2 and rank_array[ind1] == 1) or rank_array[ind2] == 0:
-            continue
-        min_ind2 = ind2
-        dict1 = answer_dict.copy()
-        dict1.update({curr_ind: (ind1, ind2)})
-        copy_array = np.array(rank_array)
-        copy_array[ind1] -= 1
-        copy_array[ind2] -= 1
-        yield from place_pairs(*copy_array, min_ind2=min_ind2, curr_ind=curr_ind + 1, start=start, answer_dict=dict1)
-
-
-def place_indices(*rank_array):
-    # only paired indices allowed
-    if sum(rank_array) % 2 == 0:
-        yield from place_pairs(*rank_array)
-    # one single index
-    else:
-        for single_ind in range(len(rank_array)):
-            if rank_array[single_ind] > 0:
-                copy_array = np.array(rank_array)
-                copy_array[single_ind] -= 1
-                yield from place_pairs(*copy_array, answer_dict={0: (single_ind,)})
-
-
-def list_labels(tensor):
-    rank_array = []
-    for term in tensor.obs_list:
-        rank_array.append(term.dorder.xorder)
-        rank_array.append(term.cgp.rank)
-    return [output_dict for output_dict in place_indices(*rank_array) if test_valid_label(output_dict, tensor.obs_list)]
-
-
-# check if index labeling is invalid (i.e. not in non-decreasing order among identical terms)
-# this excludes more incorrect options early than is_canonical
-# the lexicographic ordering rule fails at N=6 but this is accounted for by the canonicalization
-def test_valid_label(output_dict, obs_list):  # it would arguably be smarter to pass an index list
-    if len(output_dict.keys()) < 2:  # not enough indices for something to be invalid
-        return True
-    # this can be implemented more efficiently, but the cost is negligible for reasonably small N
-    bins = []  # bin observations according to equality
-    for obs in obs_list:
-        found_match = False
-        for bi in bins:
-            if bi is not None and obs == bi[0]:
-                bi.append(obs)
-                found_match = True
-        if not found_match:
-            bins.append([obs])
-    if len(bins) == len(obs_list):
-        return True  # no repeated values
-    # else need to check more carefully
-    n = len(obs_list)
-    index_list = labels_to_index_list(output_dict, n)
-    # don't think this test is needed since this only gets broken later
-    # for sub_list, prim in zip(index_list[1::2], obs_list):
-    #    if sub_list != [] and not prim.cgp.is_index_canon(sub_list):
-    #        return False
-    for i in range(n):
-        for j in range(i + 1, n):
-            if obs_list[i] == obs_list[j]:
-                clist1 = CompList(index_list[2 * i] + index_list[2 * i + 1])
-                clist2 = CompList(index_list[2 * j] + index_list[2 * j + 1])
-                if not clist2.special_bigger(clist1):  # if (lexicographic) order decreases OR i appears late
-                    return False
-    return True
 
 
 def yield_tuples_up_to(bounds):
@@ -665,21 +574,21 @@ def raw_library_tensors(observables, orders, max_order=None, zeroidx=0):
     # as long as it's lexicographically less than previous order; take at least one of first observable
 
     # print(orders, max_order, zeroidx)
-    N = len(observables)
-    if orders[N] == 0:
+    n = len(observables)
+    if orders[n] == 0:
         if sum(orders) > 0:  # invalid distribution
             return
         else:
             yield 1
             return
-    while zeroidx < N and orders[zeroidx] == 0:
+    while zeroidx < n and orders[zeroidx] == 0:
         zeroidx += 1
-    if zeroidx < N:
+    if zeroidx < n:
         orders[zeroidx] -= 1  # always put in at least one of these to maintain lexicographic order
 
     # orders = obs_orders + [nt, nx]
     # print("ORDERS: ", orders)
-    for tup in yield_legal_tuples(orders[:N] + [0] + orders[N + 1:]):  # ignore the rho index
+    for tup in yield_legal_tuples(orders[:n] + [0] + orders[n + 1:]):  # ignore the rho index
         orders_copy = orders.copy()
         popped_orders = list(tup)
         # print("Popped: ", popped_orders)
@@ -688,10 +597,10 @@ def raw_library_tensors(observables, orders, max_order=None, zeroidx=0):
         if sum(orders_copy[:-2]) == 0 and sum(
                 orders_copy[-2:]) > 0:  # all observables + rho popped but derivatives remain
             continue  # otherwise we will have duplicates from omitting derivatives
-        if zeroidx < N:
+        if zeroidx < n:
             popped_orders[zeroidx] += 1  # re-adding the one
-        orders_copy[N] -= 1  # account for the rho we used
-        popped_orders[N] += 1  # include the rho here as well
+        orders_copy[n] -= 1  # account for the rho we used
+        popped_orders[n] += 1  # include the rho here as well
         po_cl = CompList(popped_orders)
         if max_order is None or po_cl <= max_order:
             obs_list = []
@@ -717,12 +626,12 @@ def generate_terms_to(order, observables=None, max_observables=999):
     observables = sorted(observables, reverse=True)  # ordering opposite of canonicalization rules for now
     libterms = list()
     libterms.append(ConstantTerm())
-    N = order  # max number of "blocks" to include
-    K = len(observables)
-    partitions = partition(N, K + 3)  # K observables + rho + 2 derivative dimensions
+    n = order  # max number of "blocks" to include
+    k = len(observables)
+    partitions = partition(n, k + 3)  # k observables + rho + 2 derivative dimensions
     # not a valid term if no observables or max exceeded
     for part in partitions:
-        if part[K] > 0 and sum(part[:K]) <= max_observables:  # popped a rho, did not exceed max observables
+        if part[k] > 0 and sum(part[:k]) <= max_observables:  # popped a rho, did not exceed max observables
             # nt, nx = part[-2:]
             # obs_orders = part[:-2]
             # for tensor in raw_library_tensors(observables, obs_orders, nt, nx):
@@ -802,10 +711,10 @@ class Equation(object):  # can represent equation (expression = 0) OR expression
 
     def __rmul__(self, other):
         if isinstance(other, LibraryTerm):
-            return Equation([(other*term).canonicalize() for term in self.term_list], self.coeffs)
-        else: # multiplication by number
-            return Equation(self.term_list, [other*c for c in self.coeffs])
-        
+            return Equation([(other * term).canonicalize() for term in self.term_list], self.coeffs)
+        else:  # multiplication by number
+            return Equation(self.term_list, [other * c for c in self.coeffs])
+
     def __mul__(self, other):
         return self.__rmul__(other)
 
@@ -822,14 +731,14 @@ class Equation(object):  # can represent equation (expression = 0) OR expression
     def dt(self):
         components = [coeff * term.dt() for term, coeff in zip(self.term_list, self.coeffs)
                       if not isinstance(term, ConstantTerm)]
-        if components == []:
+        if not components:
             return None
         return reduce(add, components).canonicalize()
 
     def dx(self):
         components = [coeff * term.dx() for term, coeff in zip(self.term_list, self.coeffs)
                       if not isinstance(term, ConstantTerm)]
-        if components == []:
+        if not components:
             return None
         return reduce(add, components).canonicalize()
 

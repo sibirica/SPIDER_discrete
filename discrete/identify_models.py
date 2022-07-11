@@ -24,12 +24,12 @@ def identify_equations(Q, reg_opts, library, threshold=1e-5, min_complexity=1,
         max_complexity = int(np.ceil(lib_max_complexity))
     lib_prim_data = set([tup for term in library for tup in unpack_prims(term)])
     lib_prim_terms = make_terms(lib_prim_data)
-    #print(lib_prim_terms)
-    for complexity in range(min_complexity, max_complexity+1):
-        while len(equations)<max_equations:
-            selection = [(term, i) for (i, term) in enumerate(library) if term.complexity<=complexity
-                        and term not in excluded_terms]
-            if len(selection)==0:
+    # print(lib_prim_terms)
+    for complexity in range(min_complexity, max_complexity + 1):
+        while len(equations) < max_equations:
+            selection = [(term, i) for (i, term) in enumerate(library) if term.complexity <= complexity
+                         and term not in excluded_terms]
+            if len(selection) == 0:
                 break
             sublibrary = [s[0] for s in selection]
             inds = [s[1] for s in selection]
@@ -82,11 +82,11 @@ def form_equation(lhs, rhs):
     if rhs is None:
         return Equation([lhs], [1])
     else:
-        return TermSum([lhs])+(-1)*rhs
+        return TermSum([lhs]) + (-1) * rhs
 
 
 def make_equation_from_Xi(Xi, lambd, best_term, lambda1, sublibrary):
-    #print(Xi, lambd, best_term, lambda1, sublibrary)
+    # print(Xi, lambd, best_term, lambda1, sublibrary)
     if lambda1 < lambd:
         return Equation([sublibrary[best_term]], [1]), lambda1
     else:

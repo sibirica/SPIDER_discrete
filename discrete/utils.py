@@ -20,27 +20,27 @@ def load(filename, nload):
 def construct_from_string(input_str, type_str, obs_dict):
     # obs_dict: name -> Observable
     if type_str == "CoarseGrainedPrimitive" or type_str == "CGP":
-        #input_str == "rho[" can happen if method calls itself but is equivalent to length == 1 case
+        # input_str == "rho[" can happen if method calls itself but is equivalent to length == 1 case
         token_list = input_str.split('[')
-        if len(token_list)==1:
+        if len(token_list) == 1:
             return CoarseGrainedPrimitive([])
         else:
             obs_list = token_list[-1].split(" * ")
-            return CoarseGrainedPrimitive(map(obs_list, lambda x:obs_dict[x]))
+            return CoarseGrainedPrimitive(map(obs_list, lambda x: obs_dict[x]))
         # makes more sense to construct from the usual constructor
     elif type_str == "LibraryPrimitive" or type_str == "LP":
         token_list = input_str.split('[')
         first_token_list = token_list[0].split()
         torder = first_token_list.count("dt")
         xorder = first_token_list.count("dx")
-        return LibraryPrimitive(DerivativeOrder(torder, xorder), 
-                                construct_from_string('rho['+token_list[-1], "CGP"))
-    #elif type_str == "IndexedPrimitive":
-        # not implemented until it seems useful
-    elif type_str == "LibraryTensor": # most likely not going to be used
+        return LibraryPrimitive(DerivativeOrder(torder, xorder),
+                                construct_from_string('rho[' + token_list[-1], "CGP"))
+    # elif type_str == "IndexedPrimitive":
+    # not implemented until it seems useful
+    elif type_str == "LibraryTensor":  # most likely not going to be used
         if input_str == 1:
             return ConstantTerm()
-        token_list = input_str.split(" @ ") # it's easier to write the code if @ and * are separate
+        token_list = input_str.split(" @ ")  # it's easier to write the code if @ and * are separate
         product = construct_from_string(token_list[0], "LibraryPrimitive", obs_dict)
         for token in token_list[1:]:
             product *= construct_from_string(token, "LibraryPrimitive", obs_dict)
@@ -91,7 +91,7 @@ def term_plus_inds(string, obs_dict):
     if obs_token == "":
         obs_list = []
     else:
-        obs_tk_list = obs_token[1:-1].split(" * ") # remove "[" and "]" parts, get indexed observables
+        obs_tk_list = obs_token[1:-1].split(" * ")  # remove "[" and "]" parts, get indexed observables
         for cgp in obs_tk_list:
             parts = cgp.split("_")
             obs_list.append(obs_dict[parts[0]])
@@ -108,4 +108,3 @@ def term_plus_inds(string, obs_dict):
     cgp = CoarseGrainedPrimitive(obs_list)
     obs = LibraryPrimitive(DerivativeOrder(torder, xorder), cgp)
     return obs, inds1, inds2
-

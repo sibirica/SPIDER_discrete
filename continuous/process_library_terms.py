@@ -1,6 +1,7 @@
 from findiff import FinDiff
 from commons.weight import *
 from library import *
+from operator import mul
 
 
 class IntegrationDomain(object):
@@ -95,8 +96,8 @@ def int_by_parts_dim(term, weight, dim):
     this seems too difficult to automate; at this point it's probably easier to just write the term out manually."""
 
     # find best term to base integration off of
-    #best_prim, next_best, third_best = None, None, None
-    #best_i, next_i, third_i = None, None, None
+    # best_prim, next_best, third_best = None, None, None
+    # best_i, next_i, third_i = None, None, None
     best_prim, next_prim = None, None
     num_next = 0
     for (i, prim) in enumerate(term.obs_list):
@@ -108,13 +109,13 @@ def int_by_parts_dim(term, weight, dim):
                     return
             else:  # multiple candidate terms -> integrating by parts will not help
                 yield term, weight, True
-                return  
-        elif prim.nderivs == term.nderivs-1:
+                return
+        elif prim.nderivs == term.nderivs - 1:
             if next_prim is None:
                 num_next, next_prim = 1, prim
-            elif prim==next_prim:
+            elif prim == next_prim:
                 num_next += 1
-            else: # not all one-lower terms are successors of best_prim
+            else:  # not all one-lower terms are successors of best_prim
                 yield term, weight, True
     # check viability by cases
     newords = copy.deepcopy(best_prim.dimorders)
@@ -129,13 +130,13 @@ def int_by_parts_dim(term, weight, dim):
         yield new_prim * rest, -new_weight, False
         return
     else:
-        #print(rest, next_prim)
-        if next_prim.succeeds(best_prim, dim): # check if next_best goes with best
+        # print(rest, next_prim)
+        if next_prim.succeeds(best_prim, dim):  # check if next_best goes with best
             rest = rest.drop_all(next_prim)
-            num_dupes = 1+num_next
+            num_dupes = 1 + num_next
             for summand in rest.diff(dim):
-                yield reduce(mul, [next_prim]*num_dupes)*summand, -1/num_dupes*weight, False
-            yield reduce(mul, [next_prim]*num_dupes)*rest, -1/num_dupes*new_weight, False
+                yield reduce(mul, [next_prim] * num_dupes) * summand, -1 / num_dupes * weight, False
+            yield reduce(mul, [next_prim] * num_dupes) * rest, -1 / num_dupes * new_weight, False
             return
         else:
             yield term, weight, True
@@ -226,7 +227,7 @@ def get_dims(term, ndims, dim=None, start=0, do=None, od=None):
     labels = term.labels
     # print(labels)
     if do is None:
-        do = [[0] * ndims for t in term.obs_list]  # derivatives in x, y (z) of each part of the term
+        do = [[0] * ndims for _ in term.obs_list]  # derivatives in x, y (z) of each part of the term
     if od is None:
         od = [None] * len(
             term.obs_list)  # the dimension of the observable to evaluate (None if the observable is rank 0)
@@ -276,7 +277,7 @@ def make_library(terms, data_dict, weights, domains, rank, dxs=None, by_parts=Tr
         d = len(dshape) - 1  # dimensionality of equation
     else:
         d = 1
-    Q = np.zeros(shape=(len(weights) * len(domains) * d, len(terms)))
+    q = np.zeros(shape=(len(weights) * len(domains) * d, len(terms)))
     for i, term in enumerate(terms):
         row_index = 0
         if debug:
@@ -295,18 +296,18 @@ def make_library(terms, data_dict, weights, domains, rank, dxs=None, by_parts=Tr
                 arr = np.zeros(np.append(dshape, len(domains)))
                 if isinstance(term, ConstantTerm):
                     # "short circuit" the evaluation to deal with constant term case
-                    for p, domain in enumerate(domains):
-                        arr[..., p] = eval_term(term, weight, data_dict, domain, dxs, debug=(debug and p == 0))
-                        Q[row_index, i] = int_arr(arr[..., p], dxs)
-                        if debug and p == 0:
-                            print("Value: ", Q[row_index, i])
+                    for _p, domain in enumerate(domains):
+                        arr[..., _p] = eval_term(term, weight, data_dict, domain, dxs, debug=(debug and _p == 0))
+                        q[row_index, i] = int_arr(arr[..., _p], dxs)
+                        if debug and _p == 0:
+                            print("Value: ", q[row_index, i])
                         row_index += 1
                     continue
                 for (space_orders, obs_dims) in get_dims(term, len(dshape) - 1,
                                                          kc):  # note: temporal index not included here
                     if space_orders is None and obs_dims is None:
                         nt = len(term.obs_list)
-                        space_orders = [[0]*len(dshape) for i in range(nt)]
+                        space_orders = [[0] * len(dshape) for i in range(nt)]
                         obs_dims = [None] * nt
                     # integrate by parts
                     indexed_term = IndexedTerm(term, space_orders, obs_dims)
@@ -319,20 +320,20 @@ def make_library(terms, data_dict, weights, domains, rank, dxs=None, by_parts=Tr
                             if debug:
                                 print("INTEGRATED BY PARTS:")
                                 print(mod_term, [o.dimorders for o in mod_term.obs_list], mod_weight)
-                            for p, domain in enumerate(domains):
-                                arr[..., p] += eval_term(mod_term, mod_weight, data_dict, domain, dxs,
-                                                         debug=(debug and p == 0))
+                            for _p, domain in enumerate(domains):
+                                arr[..., _p] += eval_term(mod_term, mod_weight, data_dict, domain, dxs,
+                                                          debug=(debug and _p == 0))
                     else:
-                        for p, domain in enumerate(domains):
-                            arr[..., p] += eval_term(indexed_term, weight, data_dict, domain, dxs,
-                                                     debug=(debug and p == 0))
+                        for _p, domain in enumerate(domains):
+                            arr[..., _p] += eval_term(indexed_term, weight, data_dict, domain, dxs,
+                                                      debug=(debug and _p == 0))
 
-                for p in range(len(domains)):
-                    Q[row_index, i] = int_arr(arr[..., p], dxs)
-                    if debug and p == 0:
-                        print("Value: ", Q[row_index, i])
+                for _p in range(len(domains)):
+                    q[row_index, i] = int_arr(arr[..., _p], dxs)
+                    if debug and _p == 0:
+                        print("Value: ", q[row_index, i])
                     row_index += 1
-    return Q
+    return q
 
 
 def find_scales(data_dict, names=None):

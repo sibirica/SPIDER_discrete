@@ -325,4 +325,3 @@ def test_valid_label(output_dict, obs_list):
 
 rho = Observable('rho', 0)
 v = Observable('v', 1)
-
