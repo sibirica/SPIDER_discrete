@@ -58,17 +58,17 @@ class Observable(object):
     
     def __lt__ (self, other):
         if not isinstance(other, Observable):
-            raise ValueError("Second argument is not an observable.") 
+            raise TypeError("Second argument is not an observable.") 
         return self.string<other.string
 
     def __gt__ (self, other):
         if not isinstance(other, Observable):
-            raise ValueError("Second argument is not an observable.") 
+            raise TypeError("Second argument is not an observable.") 
         return other.__lt__(self)
 
     def __eq__ (self, other):
         if not isinstance(other, Observable):
-            raise ValueError("Second argument is not an observable.") 
+            raise TypeError("Second argument is not an observable.") 
         return self.string==other.string
 
     def __ne__ (self, other):
@@ -106,7 +106,7 @@ class LibraryPrimitive(object):
     
     def __lt__ (self, other):
         if not isinstance(other, LibraryPrimitive):
-            raise ValueError("Second argument is not a LibraryPrimitive.") 
+            raise TypeError("Second argument is not a LibraryPrimitive.") 
         if self.observable == other.observable:
             return self.dorder < other.dorder
         else:
@@ -114,12 +114,12 @@ class LibraryPrimitive(object):
 
     def __gt__ (self, other):
         if not isinstance(other, LibraryPrimitive):
-            raise ValueError("Second argument is not a LibraryPrimitive.") 
+            raise TypeError("Second argument is not a LibraryPrimitive.") 
         return other.__lt__(self)
 
     def __eq__ (self, other):
         if not isinstance(other, LibraryPrimitive):
-            raise ValueError("Second argument is not a LibraryPrimitive.") 
+            raise TypeError("Second argument is not a LibraryPrimitive.") 
         return self.observable==other.observable and self.dorder==other.dorder
 
     def __ne__ (self, other):
@@ -208,7 +208,7 @@ class LibraryTensor(object): # unindexed version of LibraryTerm
         elif other==1:
             return self
         else:
-            raise ValueError(f"Cannot multiply {type(self)}, {type(other)}")
+            raise TypeError(f"Cannot multiply {type(self)}, {type(other)}")
     
     def __rmul__(self, other):
         return __mul__(self, other)
@@ -325,7 +325,7 @@ class LibraryTerm(object):
         elif isinstance(other, Equation):
             return other.__mul__(self)
         else:
-            raise ValueError(f"Cannot multiply {type(self)}, {type(other)}")
+            raise TypeError(f"Cannot multiply {type(self)}, {type(other)}")
     
     def __rmul__(self, other):
         return self.__mul__(other)
@@ -678,7 +678,7 @@ class Equation(object): # can represent equation (expression = 0) OR expression
         if isinstance(other, Equation):
             return Equation(self.term_list + other.term_list, self.coeffs + other.coeffs)
         else:
-            raise ValueError(f"Second argument {other}) is not an equation.")
+            raise TypeError(f"Second argument {other}) is not an equation.")
             
     def __rmul__(self, other):
         if isinstance(other, LibraryTerm):
@@ -764,4 +764,4 @@ class TermSum(Equation):
         elif isinstance(other, Equation):
             return Equation(self.term_list + other.term_list, self.coeffs + other.coeffs)
         else:
-            raise ValueError(f"Second argument {other}) is not an equation.")
+            raise TypeError(f"Second argument {other}) is not an equation.")
