@@ -817,7 +817,6 @@ def raw_library_tensors(observables, orders, max_order=None, zeroidx=0):
 rho = Observable('rho', 0)
 v = Observable('v', 1)
 def generate_terms_to(order, observables=[rho, v], max_observables=999):
-    # note: this ignores the fact that rho operator adds complexity, but you can filter by complexity later
     observables = sorted(observables, reverse=True) # ordering opposite of canonicalization rules for now
     libterms = list()
     libterms.append(ConstantTerm())
@@ -833,19 +832,20 @@ def generate_terms_to(order, observables=[rho, v], max_observables=999):
             #print("\n\n\n")
             #print("Partition:", part)
             for tensor in raw_library_tensors(observables, list(part)):
-                #print("Tensor", tensor)
-                #print("List of labels", list_labels(tensor))
-                for label in list_labels(tensor):
-                    #print("Label", label)
-                    index_list = labels_to_index_list(label, len(tensor.obs_list))
-                    #print("Index list", index_list)
-                    for lt in get_library_terms(tensor, index_list):
-                        #print("LT", lt)
-                        # note: not sure where to put this check
-                        canon = lt.canonicalize()
-                        if lt.is_canonical:
-                            #print("is canonical")
-                            libterms.append(lt)
+                if tensor.complexity<=order: # this may not be true since we set complexity of rho[1]>1
+                    #print("Tensor", tensor)
+                    #print("List of labels", list_labels(tensor))
+                    for label in list_labels(tensor):
+                        #print("Label", label)
+                        index_list = labels_to_index_list(label, len(tensor.obs_list))
+                        #print("Index list", index_list)
+                        for lt in get_library_terms(tensor, index_list):
+                            #print("LT", lt)
+                            # note: not sure where to put this check
+                            canon = lt.canonicalize()
+                            if lt.is_canonical:
+                                #print("is canonical")
+                                libterms.append(lt)
     return libterms
 
 def get_valid_reorderings(observables, obs_index_list):
