@@ -34,7 +34,7 @@ def construct_from_string(input_str, type_str, obs_dict):
         torder = first_token_list.count("dt")
         xorder = first_token_list.count("dx")
         return LibraryPrimitive(DerivativeOrder(torder, xorder),
-                                construct_from_string('rho[' + token_list[-1], "CGP"))
+                                construct_from_string('rho[' + token_list[-1], "CGP", obs_dict))
     # elif type_str == "IndexedPrimitive":
     # not implemented until it seems useful
     elif type_str == "LibraryTensor":  # most likely not going to be used

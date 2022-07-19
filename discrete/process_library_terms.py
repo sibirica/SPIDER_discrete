@@ -212,7 +212,7 @@ class SRDataset(object):  # structures all data associated with a given sparse r
                 # coarse-graining this particle (one dimension at a time)
                 rngs = []
                 g_nd = 1
-                for coord, d_min, d_max, i in zip(pt_pos, domain.min_corner, domain.max_corner,
+                for coord, d_min, d_max, j in zip(pt_pos, domain.min_corner, domain.max_corner,
                                                   range(self.n_dimensions - 1)):
                     # recenter so that 0 is start of domain
                     g, mn, mx = gauss1d(coord - d_min, self.scaled_sigma, truncate=self.cutoff,
@@ -220,7 +220,7 @@ class SRDataset(object):  # structures all data associated with a given sparse r
                     g_nd = np.multiply.outer(g_nd, g)
                     rng_array = np.array(range(mn, mx))  # coordinate range of kernel
                     # now need to add free axes so that the index ends up as an (n-1)-d array
-                    n_free_dims = self.n_dimensions - i - 2  # how many np.newaxis to add to index
+                    n_free_dims = self.n_dimensions - j - 2  # how many np.newaxis to add to index
                     expanded_rng_array = np.expand_dims(rng_array, axis=tuple(range(1, 1 + n_free_dims)))
                     rngs.append(expanded_rng_array)
                 # if len((g_nd*coeff).shape) > len(time_slice.shape):

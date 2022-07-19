@@ -669,7 +669,7 @@ class Equation(object):  # can represent equation (expression = 0) OR expression
         if isinstance(other, Equation):
             return Equation(self.term_list + other.term_list, self.coeffs + other.coeffs)
         else:
-            raise ValueError(f"Second argument {other}) is not an equation.")
+            raise TypeError(f"Second argument {other}) is not an equation.")
 
     def __rmul__(self, other):
         if isinstance(other, LibraryTerm):
