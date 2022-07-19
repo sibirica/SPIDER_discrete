@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import List, Dict, Union
+from typing import List, Dict, Union, Tuple, Iterable, Generator
 from itertools import permutations
 
 import numpy as np
@@ -178,7 +178,7 @@ def index_list_to_labels(index_list: List[List[int]]) -> Dict[int, List[int]]:
     return labels
 
 
-def flatten(t: List[Union[list, tuple]]):
+def flatten(t: List[Union[list, tuple]]) -> list:
     """
     Removes one level of nesting from a List where every item is also a List or Tuple.
     E.g. flatten([[1, 2], [0, 3], [1, 1], (2, 0)]) returns [1, 2, 0, 3, 1, 1, 2, 0].
@@ -188,8 +188,8 @@ def flatten(t: List[Union[list, tuple]]):
     return [item for sublist in t for item in sublist]
 
 
-num_to_let_dict = {0: 'i', 1: 'j', 2: 'k', 3: 'l', 4: 'm', 5: 'n', 6: 'p'}
-let_to_num_dict = {v: k for k, v in num_to_let_dict.items()}  # inverted dict
+num_to_let_dict: Dict[int, str] = {0: 'i', 1: 'j', 2: 'k', 3: 'l', 4: 'm', 5: 'n', 6: 'p'}
+let_to_num_dict: Dict[str, int] = {v: k for k, v in num_to_let_dict.items()}  # inverted dict
 
 
 def num_to_let(num_list: List[List[int]]) -> List[List[str]]:
@@ -201,7 +201,13 @@ def num_to_let(num_list: List[List[int]]) -> List[List[str]]:
     return [[num_to_let_dict[i] for i in li] for li in num_list]
 
 
-def canonicalize_indices(indices):
+def canonicalize_indices(indices: Union[List[int], Tuple[int]]) -> Dict[int, int]:
+    """
+    Given a flattened list of indices, returns a dictionary that, when applied to every item in that list, canonicalizes
+    it.
+    :param indices: List of indices.
+    :return: Dictionary containing canonicalization rules for the input index list.
+    """
     curr_ind = 1
     subs_dict = {0: 0}
     for num in indices:
@@ -219,7 +225,14 @@ def is_canonical(indices):
     return True
 
 
-def get_isomorphic_terms(obs_list, start_order=None):
+def get_isomorphic_terms(obs_list: list, start_order: Iterable = None) -> Generator[List[int], None, None]:
+    """
+    Generator that yields all permutations of the obs_list that leave the term unchanged. For example, if a LibraryTerm
+    contains two observables that are exactly the same, swapping their order would yield the exact same library term.
+    :param obs_list: List of observables (LibraryTerms).
+    :param start_order: For internal use, generates new permutations given a starting permutation.
+    :return: Generator of all isomorphic permutations.
+    """
     if start_order is None:
         start_order = list(range(len(obs_list)))
     if len(obs_list) == 0:

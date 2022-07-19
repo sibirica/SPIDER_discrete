@@ -1,7 +1,7 @@
 import copy
 from functools import reduce
 from operator import add
-from typing import List, Dict, Union
+from typing import List, Dict, Union, Iterable
 import numpy as np
 from numpy import inf
 
@@ -199,7 +199,7 @@ class LibraryTensor(object):
     :attribute complexity: Complexity score of the object.
     """
 
-    def __init__(self, observables):
+    def __init__(self, observables: Union[LibraryPrimitive, List[LibraryPrimitive]]):
         # constructor for library terms consisting of a primitive with some derivatives
         if isinstance(observables,
                       LibraryPrimitive):
@@ -246,7 +246,8 @@ class LibraryTerm(object):
     Represents a single library term, which consists of differential operators, observables, their order, alongside with
     any free and summation indexes.
     NOTE: be careful not to modify index_list or labels without remaking because the references are reused!
-    :attribute canon_dict: Stores ambiguous canonicalizations (which shouldn't exist for less than 6 indices).
+    :attribute canon_dict: Stores ambiguous canonicalizations (which shouldn't exist for less than 6 indices). This
+    dictionary is common to ALL LibraryTerm objects.
     :attribute obs_list: List of observables represented as a list of LibraryPrimitive objects.
     :attribute libtensor: LibraryTensor object storing observables.
     :attribute rank: Tensor rank of the object. In this system we only have rank 0 and 1 tensor. Rank changes after
@@ -393,7 +394,12 @@ class LibraryTerm(object):
         return self.__mul__(other)
 
     # TODO: Move common functionality to commons.
-    def structure_canonicalize(self):
+    def structure_canonicalize(self) -> 'LibraryTerm':
+        """
+        Reorders the object's obs_list so that the observables are stored in ascending order. See
+        LibraryPrimitive.__lt__() for more details of evaluating inequalities.
+        :return: LibraryTerm with similar properties, but with observables stored in ascending order.
+        """
         indexed_zip = zip(self.obs_list, self.der_index_list, self.obs_index_list)
         sorted_zip = sorted(indexed_zip, key=lambda x: x[0])
         if sorted_zip == indexed_zip:  # no changes necessary
@@ -405,7 +411,12 @@ class LibraryTerm(object):
         sorted_libtens = LibraryTensor(sorted_obs)
         return LibraryTerm(sorted_libtens, index_list=sorted_ind)
 
-    def index_canonicalize(self):
+    def index_canonicalize(self) -> 'LibraryTerm':
+        """
+        Compares the current indexation of the object with their canonical form. If the indexes are already in canonical
+        order, returns self; else, returns a new LibraryTerm with similar properties but with canonicalized indices.
+        :return: A LibraryTerm with canonical indices, but unchanged properties.
+        """
         # inc = 0
         # if len(self.labels[0])==2: # if multiple i's, need to increment all indices
         #    inc = 1
@@ -416,7 +427,13 @@ class LibraryTerm(object):
         return LibraryTerm(self.libtensor, index_list=new_index_list)
 
     # TODO: Move common functionality to commons.
-    def reorder(self, template):
+    def reorder(self, template: Iterable) -> 'LibraryTerm':
+        """
+        Reorders the objects' observable list and indexes as to follow an order indicated by a template.
+        Ex: obs_list = [u, v, p, w], template = [13, 2, -5, 3] -> obs_list = [p, v, w, u]
+        :param template: An iterable whose items can be sorted (support the < operator).
+        :return: A LibraryTerm with reordered objects and indexes, but unchanged properties.
+        """
         indexed_zip = zip(self.obs_list, self.der_index_list, self.obs_index_list, template)
         sorted_zip = sorted(indexed_zip, key=lambda x: x[3])
         sorted_obs = [e[0] for e in sorted_zip]
@@ -427,11 +444,20 @@ class LibraryTerm(object):
         return LibraryTerm(sorted_libtens, index_list=sorted_ind)
 
     # TODO: Move common functionality to commons.
-    def canonicalize(self):  # return canonical representation and set is_canonical flag (used to determine if valid)
+    def canonicalize(self) -> 'LibraryTerm':
+        """
+        Returns the LibraryTerm's canonical representation and set LibraryTerm.is_canonical to True (used to determine
+        if the LibraryTerm is valid). Other than ordering and the aforementioned is_canonical flag, the objects'
+        properties remain unchaged.
+        :return: LibraryTerm's canonical representation.
+        """
+        if self.is_canonical:
+            return self
         str_canon = self.structure_canonicalize()
         if str_canon in self.canon_dict:
             canon = self.canon_dict[str_canon]
             self.is_canonical = (self == canon)
+            canon.is_canonical = True
             return canon
         reorderings = []
         alternative_canons = []
@@ -442,18 +468,29 @@ class LibraryTerm(object):
                 canon_term = term.index_canonicalize()
                 alternative_canons.append(canon_term)
         canon = min(alternative_canons, key=str)
+        self.is_canonical = (self == canon)
         for alt_canon in alternative_canons:
             self.canon_dict[alt_canon] = canon
-            self.is_canonical = (self == canon)
+        canon.is_canonical = True
         return canon
 
-    def increment_indices(self, inc):
+    def increment_indices(self, inc: int) -> 'LibraryTerm':
+        """
+        Generates a new LibraryTerm identical to self, but whose indices were incremented by a fixed integer amount inc.
+        :param inc: Integer amount to increment indices by.
+        :return: LibraryTerm with similar propreties, but whose indices were incremented by inc.
+        """
         index_list = [[index + inc for index in li] for li in self.index_list]
         return LibraryTerm(LibraryTensor(self.obs_list), index_list=index_list)
 
-    def dt(self):
+    def dt(self) -> 'Equation':
+        """
+        Returns the time derivative of the LibraryTerm. The returned object is of type Equation and is in canonical
+        form.
+        :return: Equation representing the time derivative of the LibraryTerm.
+        """
         terms = []
-        for i, obs in enumerate(self.obs_list):
+        for i, obs in enumerate(self.obs_list):  # Product rule
             new_obs = obs.dt()
             # note: no need to recanonicalize terms after a dt
             lt = LibraryTerm(LibraryTensor(self.obs_list[:i] + [new_obs] + self.obs_list[i + 1:]),
@@ -462,9 +499,16 @@ class LibraryTerm(object):
         ts = TermSum(terms)
         return ts.canonicalize()
 
-    def dx(self):
+    def dx(self) -> 'Equation':
+        """
+        Returns the spatial derivative of the LibraryTerm. The returned object is of type Equation and is in canonical
+        form.
+        NOTE: Assumes that the index `i` always denotes the free index. Using `i` for repeated indexes will result in
+        equations with terms ill-defined under Einstein's convention (e.g. v_i * di v_i).
+        :return: Equation representing the spatial derivative of the LibraryTerm.
+        """
         terms = []
-        for i, obs in enumerate(self.obs_list):
+        for i, obs in enumerate(self.obs_list):  # Product rule
             new_obs = obs.dx()
             new_index_list = copy.deepcopy(self.index_list)
             new_index_list[2 * i].insert(0, 0)
@@ -556,14 +600,14 @@ class ConstantTerm(IndexedTerm):
 
 def label_repr(prim: LibraryPrimitive, ind1: List[str], ind2: List[str]) -> str:
     """
-    Given a LibraryPrimitive, the list of differencial indexes, and its list of indexes. Returns a formatted string of
-    its representation.
+    Given a LibraryPrimitive, the list of differencial indexes, and its list of obsevable indexes. Returns a formatted
+    string of its representation.
     A Library Primitive is represented by its time derivative(if any) with respective order(if greater than one),
     followed by its spatial derivative (if any) with respective index and order (if greater than one), followed by the
     observable representation with respective index (if any, only for rank 1 tensors).
     NOTE: Indexes are stored in order-sensitive lists. For consistent representation of library terms use canonicalized
     objects.
-    :param prim:
+    :param prim: LibraryPrimitive to be represented
     :param ind1: List of Derivative Indexes
     :param ind2: List of Observable Indexes
     :return: String representation of this indexed LibraryPrimitive.
