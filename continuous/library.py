@@ -487,7 +487,8 @@ class ConstantTerm(IndexedTerm):
     def __init__(self):
         self.obs_list = []
         self.rank = 0
-        self.complexity = 1
+        self.complexity = 0
+        self.is_canonical = True
                 
     def __repr__(self):
         return "1"

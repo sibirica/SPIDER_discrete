@@ -183,7 +183,6 @@ class SRDataset(object): # structures all data associated with a given sparse re
         product *= weight_arr
         return product
 
-    ## TO DO: implement coarse-graining
     def eval_cgp(self, cgp, obs_dims, domain):
         data_slice = np.zeros(domain.shape)
         if self.domain_neighbors is None:
@@ -310,7 +309,6 @@ class SRDataset(object): # structures all data associated with a given sparse re
             #if rank==0: # then we can also compute the row weights
         self.find_row_weights()
         
-    ## TO DO - just take empirical average/std over points
     def find_scales(self, names=None): 
         # find mean/std deviation of fields in data_dict that are in names
         self.scale_dict = dict()
@@ -329,7 +327,6 @@ class SRDataset(object): # structures all data associated with a given sparse re
         rho_std = np.std(np.dstack([self.cg_dict[rho_cgp, (), domain] for domain in self.domains]))
         self.scale_dict['rho']['std'] = rho_std
     
-    ## TO DO - needs to be rewritten a bit
     def get_char_size(self, term):
         # return characteristic size of a library term
         product = 1
