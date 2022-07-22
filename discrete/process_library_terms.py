@@ -104,6 +104,7 @@ class SRDataset(object): # structures all data associated with a given sparse re
         self.scaled_sigma = kernel_sigma*cg_res
         self.scaled_pts = particle_pos*cg_res
         self.dxs = [1/cg_res]*(self.n_dimensions-1)+[deltat] # spacings of sampling grid
+        # note that self.dxs is used over self.weight_dxs in ALL applications except differentiating weight function (in which case weight_dxs corresponds to the rescaling as the result of the change of variables)
         self.domain_neighbors = None
         self.cutoff = cutoff # how many std deviations to cut off gaussians at
         self.scale_dict = None # dict of characteristic scales of observables -> (mean, std)
@@ -175,7 +176,7 @@ class SRDataset(object): # structures all data associated with a given sparse re
                         print(f"CGP {cgp} is new")
                     self.cgps.append(cgp)
             if sum(dorders)!=0:
-                product *= diff(data_slice, dorders, self.weight_dxs)
+                product *= diff(data_slice, dorders, self.dxs)
             else:
                 product *= data_slice
             #print(product[0, 0, 0])

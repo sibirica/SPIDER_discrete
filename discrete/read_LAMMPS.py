@@ -12,7 +12,6 @@ def dump_to_traj(in_file, out_file, num_dimensions, timestep):
     line_is_time = False # only true if we're on the line where the timestep is stated
     dt_set = False
     prev_time = 0
-    curr_step = -1
     
     line_is_natoms = False
     natoms_set = False
@@ -34,7 +33,6 @@ def dump_to_traj(in_file, out_file, num_dimensions, timestep):
                 line_is_bounds = True
             elif "xs" in line:
                 mode = "data"
-                curr_step += 1 # next batch of data ready
                 traj = np.zeros(shape=(natoms, num_dimensions))
                 traj_list.append(traj)
             elif mode == "data": ### set data
@@ -60,10 +58,10 @@ def dump_to_traj(in_file, out_file, num_dimensions, timestep):
                         bounds = list(map(float, line.split()))
                         #offset -= bounds[0] # want grid to start at 0, assume spatial symmetry
                         #dims[:num_dimensions] = [int(np.ceil(bounds[1]-bounds[0]))]*num_dimensions
-                        dims[:num_dimensions] = [1]*num_dimensions # I'll try not to use other size boxes
+                        dims.append(1) # I'll try not to use other size boxes
                         spatial_set = True            
     trajs = np.dstack(traj_list) # stack the list of 2d arrays
-    dims.append(curr_step+1) # last dim is number of time steps
+    dims.append(len(traj_list)) # last dim is number of time steps
     # compute velocities by finite differencing
     traj_diff = FinDiff((num_dimensions, dt, 1), acc=4)
     vs = traj_diff(trajs) # compute velocities by finite differencing
