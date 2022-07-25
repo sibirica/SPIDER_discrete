@@ -142,6 +142,7 @@ class IndexedPrimitive(LibraryPrimitive):
         """
 
         # Assert exactly one of the constructors is given.
+        # https://drive.google.com/file/d/16HE6t1pO0l4yoS-l_Mhrme3lPT9T1_7R/view?usp=sharing
         if (newords is not None) ^ (obs_dim is None or space_orders is None):
             raise TypeError(f"IndexedPrimitive must be initialized with newords, XOR obs_dim and space_orders.")
 
@@ -359,6 +360,7 @@ class LibraryTerm(object):
         """
 
         # Assert exactly one of the constructors is given.
+        # https://drive.google.com/file/d/16HE6t1pO0l4yoS-l_Mhrme3lPT9T1_7R/view?usp=sharing
         if (labels is not None) ^ (index_list is None):
             raise TypeError("LibraryTerm must be initialized with a labels dictionary XOR an index_list.")
 
@@ -667,6 +669,7 @@ class IndexedTerm(object):  # LibraryTerm with i's mapped to x/y/z
         """
 
         # Asserts exactly one of the costructors is given.
+        # https://drive.google.com/file/d/16HE6t1pO0l4yoS-l_Mhrme3lPT9T1_7R/view?usp=sharing
         if (obs_list is not None) ^ (libterm is None or space_orders is None or obs_dims is None):
             raise TypeError("Indexed term must be initialized with a obs_list, XOR libterm and space_orders and "
                             "obs_dims.")
