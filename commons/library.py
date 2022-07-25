@@ -9,6 +9,7 @@ import numpy as np
 class CompPair(object):
     """
     Data class used to compare integer tuples of space and time derivative orders.
+
     :attribute torder: time derivative order.
     :attribute xorder: space derivative order.
     :attribute complexity: term complexity.
@@ -28,6 +29,7 @@ class CompPair(object):
 class CompList(object):
     """
     Data class used to compare lists of integer, which don't need to be of equal length.
+
     :attribute in_list: Internal (or index?) list, a list of integers.
     """
     in_list: List[int]
@@ -40,6 +42,7 @@ class CompList(object):
         index on self.in_list and other.in_list are the same. The first non-equal pair
         (self.in_list[i], other.in_list[i]) satisfies self.in_list[i] > other.in_list[i].
         NOTE: may be used to calculate every relational operator.
+
         :param other: CompList object to be compared.
         :return: Comparison result.
         """
@@ -54,6 +57,7 @@ class CompList(object):
         """
         A quicker method to compare two CompList objects. Tests if one of the lists contains a zero and the other
         does not.
+
         :param other: CompList object to be compared.
         :return: Test result.
         """
@@ -73,6 +77,7 @@ class DerivativeOrder(CompPair):
     def dt(self) -> 'DerivativeOrder':
         """
         Increase order of time derivative by one.
+
         :return: A Derivative Order object with the same spacial order and one plus its temporal order.
         """
         return DerivativeOrder(self.torder + 1, self.xorder)
@@ -80,6 +85,7 @@ class DerivativeOrder(CompPair):
     def dx(self) -> 'DerivativeOrder':
         """
         Increase order of space derivative by one.
+
         :return: A Derivative Order object with the same temporal order and one plus its spacial order.
         """
         return DerivativeOrder(self.torder, self.xorder + 1)
@@ -90,7 +96,9 @@ class Observable(object):
     """
     Data class object that stores a string representation of an observable as well as its rank. For documentation
     purposes, this class will always be refered to as 'Observable' (capitalized), unless stated otherwise. Furthermore,
-    the term 'observable' usually does NOT refer to this class, but rather to a LibraryPrimitive object.
+    the term 'observable' usually does NOT refer to this class, but rather to a LibraryPrimitive or IndexedPrimitive
+    object.
+
     :attribute string: String representation of the observable.
     :attribute rank: Tensor rank of the observable.
     """
@@ -107,7 +115,6 @@ class Observable(object):
             raise TypeError(f"Operation not supported between instances of '{type(self)}' and '{type(other)}'")
         return self.string < other.string
 
-    # TODO: This may be redundant. I believe python does this proccess internally.
     def __gt__(self, other):
         if not isinstance(other, Observable):
             raise TypeError(f"Operation not supported between instances of '{type(self)}' and '{type(other)}'")
@@ -125,6 +132,7 @@ class Observable(object):
 def create_derivative_string(torder: int, xorder: int) -> (str, str):
     """
     Creates a derivative string given a temporal order and a spatial order.
+
     :param torder: Temporal derivative order.
     :param xorder: Spatial Derivative Order.
     :return: Time derivative string, Spatial derivative string
@@ -150,6 +158,7 @@ def labels_to_index_list(labels: Dict[int, List[int]], n: int) -> List[List[int]
     """
     Transform a labels representation of the indexes of a LibraryTerm to its corresponding index_list representation.
     https://github.com/sibirica/SPIDER_discrete/wiki/Index-Lists-and-Labels
+
     :param labels: Dictionary representation of the indexes of a LibraryTerm
     :param n: Number of observables.
     :return: The corresponding index_list.
@@ -165,6 +174,7 @@ def index_list_to_labels(index_list: List[List[int]]) -> Dict[int, List[int]]:
     """
     Transforms an index_list representation of the indexes of a LibraryTerm to its corresponding labels representation.
     https://github.com/sibirica/SPIDER_discrete/wiki/Index-Lists-and-Labels
+
     :param index_list: List representation of the indexes of a LibraryTerm
     :return: The corresponding labels dictionary.
     """
@@ -182,6 +192,7 @@ def flatten(t: List[Union[list, tuple]]) -> list:
     """
     Removes one level of nesting from a List where every item is also a List or Tuple.
     E.g. flatten([[1, 2], [0, 3], [1, 1], (2, 0)]) returns [1, 2, 0, 3, 1, 1, 2, 0].
+
     :param t: Nested list.
     :return: Flattened list.
     """
@@ -195,6 +206,7 @@ let_to_num_dict: Dict[str, int] = {v: k for k, v in num_to_let_dict.items()}  # 
 def num_to_let(num_list: List[List[int]]) -> List[List[str]]:
     """
     Transforms a list of lists of int indexes into the respective list of lists of letter indexes.
+
     :param num_list: List of lists of int indexes.
     :return: Corresponding list of lists of str indexes.
     """
@@ -205,6 +217,7 @@ def canonicalize_indices(indices: Union[List[int], Tuple[int]]) -> Dict[int, int
     """
     Given a flattened list of indices, returns a dictionary that, when applied to every item in that list, canonicalizes
     it.
+
     :param indices: List of indices.
     :return: Dictionary containing canonicalization rules for the input index list.
     """
@@ -229,6 +242,7 @@ def get_isomorphic_terms(obs_list: list, start_order: Iterable = None) -> Genera
     """
     Generator that yields all permutations of the obs_list that leave the term unchanged. For example, if a LibraryTerm
     contains two observables that are exactly the same, swapping their order would yield the exact same library term.
+
     :param obs_list: List of observables (LibraryTerms).
     :param start_order: For internal use, generates new permutations given a starting permutation.
     :return: Generator of all isomorphic permutations.

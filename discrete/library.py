@@ -677,6 +677,7 @@ def get_library_terms(tensor, index_list):
     obs_index_list = index_list[1::2]
     for perm_list in get_valid_reorderings(tensor.obs_list, obs_index_list):
         # print("perm_list:", perm_list)
+        # noinspection PyTypeChecker
         yield LibraryTerm(tensor, index_list=flatten(zip(der_index_list, perm_list)))
 
 
