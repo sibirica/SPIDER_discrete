@@ -1,7 +1,7 @@
 import numpy as np
 
 def sparse_reg(Theta, opts=None, threshold='pareto', brute_force=True, delta=1e-10, epsilon=1e-2, gamma=2,
-               verbose=False, n_terms=-1, char_sizes=None, row_norms=None, valid_single=None, avoid=[], subinds=None, anchor_col=0):
+               verbose=False, n_terms=-1, char_sizes=None, row_norms=None, valid_single=None, avoid=[], subinds=None, anchor_norm=None):
 # compute sparse regression on Theta * Xi = 0
 # Theta: matrix of integrated terms
 # char_sizes: vector of characteristic term sizes (per column)
@@ -21,13 +21,13 @@ def sparse_reg(Theta, opts=None, threshold='pareto', brute_force=True, delta=1e-
             Theta[row, :] *= row_norms[row]       
     if char_sizes is not None: # do this here: char_sizes are indexed by full column set
         char_sizes = np.array(char_sizes)
-        char_sizes /= np.max(char_sizes)
+        #char_sizes /= np.max(char_sizes)
         for term in range(len(char_sizes)):
             Theta[:, term] = Theta[:, term] / char_sizes[term] # renormalize by characteristic size
-    if anchor_col is None: # do this exactly here: when we divide by Thetanm later, we work with the normalized columns
+    if anchor_norm is None: # do this exactly here: when we divide by Thetanm later, we work with the normalized columns
         Thetanm = np.linalg.norm(Theta)
-    else: # do this here: anchor_col is also indexed by full columns set
-        Thetanm = np.linalg.norm(Theta[:, anchor_col])
+    else:
+        Thetanm = np.linalg.norm(Theta[:, anchor_norm])
 
     if subinds is not None:
         if subinds == []: # no inds allowed at all
@@ -46,7 +46,7 @@ def sparse_reg(Theta, opts=None, threshold='pareto', brute_force=True, delta=1e-
         Theta = np.vstack([Theta, M*np.transpose(Xi)]) # acts as a constraint - weights should be orthogonal to Xi
     
     h, w = Theta.shape
-    if anchor_col is None:
+    if anchor_norm is None:
         Thetanm /= np.sqrt(w) # scale norm of Theta by square root of # columns to fix scaling of Theta@Xi vs Thetanm
     #beta = w/h # aspect ratio
     

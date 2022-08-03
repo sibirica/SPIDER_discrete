@@ -339,8 +339,9 @@ def get_char_size(term, scale_dict, dx, dt):
             product *= scale_dict[name]['std']
         else:
             product *= scale_dict[name]['mean']
-        product *= dx**xorder
-        product *= dt**torder
+        # scale by grid spacings for derivatives (should already be accounted for by findiff)
+        #product /= dx**xorder
+        #product /= dt**torder
     return product if product>0 else 1 # if the variable is always 0 then we'll get division by zero
 
 def find_term(term_list, string): # find index of term in list matching string

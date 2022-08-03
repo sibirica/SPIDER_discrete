@@ -343,9 +343,9 @@ class SRDataset(object): # structures all data associated with a given sparse re
                 product *= self.scale_dict[name][statistic]
             # add in rho contribution (every primitive contains a rho)
             product *= self.scale_dict['rho'][statistic]
-            # scale by grid spacings for derivatives
-            product *= self.dxs[0]**xorder
-            product *= self.dxs[-1]**torder
+            # scale by grid spacings for derivatives (should already be accounted for by findiff)
+            #product /= self.dxs[0]**xorder
+            #product /= self.dxs[-1]**torder
         return product
     
     def find_row_weights(self):

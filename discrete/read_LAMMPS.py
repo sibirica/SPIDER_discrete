@@ -85,7 +85,7 @@ def dump_to_traj(in_file, out_file, num_dimensions, timestep, vel_file=None):
                     atom = int(datafields[0])-1
                     v = np.array(datafields[1:1+num_dimensions])
                     v_slice[atom, :] = v
-        vs = np.dstack(v_list)
+        vs = np.dstack(v_list)/2 # for some reason the computed velocities are off by a factor of 2
     # save trajectories, velocities, & dt to out_file
     with open(out_file, 'wb') as f_out:
         np.save(f_out, trajs, allow_pickle=True)
