@@ -4,7 +4,7 @@ from weight import *
 import copy
 from findiff import FinDiff
 from functools import reduce
-from operator import add
+from operator import add, mul
 
 class IntegrationDomain(object):
     def __init__(self, min_corner, max_corner):
