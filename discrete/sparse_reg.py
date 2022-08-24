@@ -73,7 +73,7 @@ def sparse_reg(Theta, opts=None, threshold='pareto', brute_force=True, delta=1e-
         if verbose:
             print(f'nrm[{term}]:', nrm[term])
     if w==1: # no regression to run
-        return None, np.inf, best_term, lambda1
+        return [1], np.inf, best_term, lambda1
     
     smallinds = np.zeros(w)
     margins = np.zeros(w) # increases in residual per time step

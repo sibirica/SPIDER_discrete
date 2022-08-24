@@ -25,6 +25,8 @@ def identify_equations(Q, reg_opts, library, observables, threshold=1e-5, min_co
         while len(equations)<max_equations:
             selection = [(term, i) for (i, term) in enumerate(library) if term.complexity<=complexity
                         and term not in excluded_terms]
+            if len(selection)==0: # no valid terms of this complexity
+                break
             sublibrary = [s[0] for s in selection]
             inds = [s[1] for s in selection]
             reg_opts['subinds'] = inds

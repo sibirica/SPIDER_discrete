@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 from IPython.display import HTML
 
-def dump_to_traj(in_file, out_file, num_dimensions, timestep, vel_file=None):
+def dump_to_traj(in_file, out_file, num_dimensions, timestep, L=1, vel_file=None):
     # num_dimensions: 2 (ignore z coordinate) or 3
     # timestep: set in LAMMPS input script, make a copy here
     mode = "metadata" # toggles between metadata (e.g. what timestep are we on?) or data (particles positions)
@@ -84,7 +84,7 @@ def dump_to_traj(in_file, out_file, num_dimensions, timestep, vel_file=None):
                     datafields = list(map(float, line.split())) # split into [atom, vx, vy, (vz)]
                     atom = int(datafields[0])-1
                     v = np.array(datafields[1:1+num_dimensions])
-                    v_slice[atom, :] = v
+                    v_slice[atom, :] = v/L
         vs = np.dstack(v_list)/2 # for some reason the computed velocities are off by a factor of 2
     # save trajectories, velocities, & dt to out_file
     with open(out_file, 'wb') as f_out:
@@ -98,7 +98,7 @@ def make_video(out_file, vid_file): # only works for 2D data at the moment
     with open(out_file, 'rb') as f:
         pos = np.load(f, allow_pickle=True)
         vs = np.load(f, allow_pickle=True)
-    qv = ax.quiver(pos[:, 0, 0], pos[:, 1, 0], 1, 0, clim=[-np.pi, np.pi])
+    qv = ax.quiver(pos[:, 0, -1], pos[:, 1, -1], 1, 0, clim=[-np.pi, np.pi])
     def animate(i):
         if i%10==0:
             print(i)
