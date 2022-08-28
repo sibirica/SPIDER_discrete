@@ -163,7 +163,7 @@ def sparse_reg(theta, opts=None, threshold='pareto', brute_force=True, delta=1e-
                 xi = xi_old
                 print("xi:", xi)
                 break
-    xis[w] = xi
+    xis[w-1] = xi
     if threshold == "pareto":
         y_mar, i_mar = max(margins), np.argmax(margins)
         if n_terms > 1:

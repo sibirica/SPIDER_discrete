@@ -145,7 +145,8 @@ class IndexedPrimitive(LibraryPrimitive):
 
         # Assert exactly one of the constructors is given.
         # https://drive.google.com/file/d/16HE6t1pO0l4yoS-l_Mhrme3lPT9T1_7R/view?usp=sharing
-        if (newords is not None) ^ (obs_dim is None or space_orders is None):
+        # Update Note: obs_dim may be none if the primitive is scalar.
+        if (newords is not None) ^ (space_orders is None):
             raise TypeError(f"IndexedPrimitive must be initialized with newords, XOR obs_dim and space_orders.")
 
         self.dorder = prim.dorder  # DerivativeOrder object representing time and space derivative orders of prim.
@@ -664,7 +665,7 @@ class IndexedTerm(object):  # LibraryTerm with i's mapped to x/y/z
 
     def __init__(self, libterm: LibraryTerm = None,
                  space_orders: List[List[int]] = None,
-                 obs_dims: List[int] = None,
+                 obs_dims: List[Union[int, None]] = None,
                  obs_list: List[IndexedPrimitive] = None):
         """
         Initializes an IndexedTerm object given a list of IndexedPrimitives, OR a LibraryTerm, list of observable
@@ -798,6 +799,7 @@ class ConstantTerm(IndexedTerm):
 
     def __init__(self):
         super().__init__(obs_list=[])
+        self.rank = 0
         self.is_canonical = True
 
     def __repr__(self) -> str:
