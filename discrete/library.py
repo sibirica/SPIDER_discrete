@@ -681,19 +681,6 @@ def get_library_terms(tensor, index_list):
         yield LibraryTerm(tensor, index_list=flatten(zip(der_index_list, perm_list)))
 
 
-def partition(n, k):
-    """n is the integer to partition up to, k is the length of partitions"""
-    if k < 1:
-        return
-    if k == 1:
-        for i in range(n + 1):
-            yield i,
-        return
-    for i in range(n + 1):
-        for result in partition(n - i, k - 1):
-            yield (i,) + result
-
-
 class Equation(object):  # can represent equation (expression = 0) OR expression
     def __init__(self, term_list, coeffs):  # terms are LibraryTerms, coeffs are real numbers
         content = zip(term_list, coeffs)

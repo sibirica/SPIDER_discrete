@@ -30,7 +30,7 @@ class CompList(object):
     """
     Data class used to compare lists of integer, which don't need to be of equal length.
 
-    :attribute in_list: Internal (or index?) list, a list of integers.
+    :attribute in_list: Index list, a list of integers.
     """
     in_list: List[int]
 
@@ -99,8 +99,8 @@ class Observable(object):
     the term 'observable' usually does NOT refer to this class, but rather to a LibraryPrimitive or IndexedPrimitive
     object.
 
-    :attribute string: String representation of the observable.
-    :attribute rank: Tensor rank of the observable.
+    :attribute string: String representation of the Observable.
+    :attribute rank: Tensor rank of the Observable.
     """
     string: str  # String representing the Observable.
     rank: int  # Derivative rank of the Observable.
@@ -154,7 +154,7 @@ def create_derivative_string(torder: int, xorder: int) -> (str, str):
     return tstring, xstring
 
 
-def labels_to_index_list(labels: Dict[int, List[int]], n: int) -> List[List[int]]:
+def labels_to_index_list(labels: Dict[int, Union[List[int], Tuple[int]]], n: int) -> List[List[int]]:
     """
     Transform a labels representation of the indexes of a LibraryTerm to its corresponding index_list representation.
     https://github.com/sibirica/SPIDER_discrete/wiki/Index-Lists-and-Labels
@@ -230,7 +230,13 @@ def canonicalize_indices(indices: Union[List[int], Tuple[int]]) -> Dict[int, int
     return subs_dict
 
 
-def is_canonical(indices):
+def is_canonical(indices: Union[List[int], Tuple[int]]) -> bool:
+    """
+    Tests if a sequence of indices is in canonical order.
+
+    :param indices: Sequence of indices
+    :return: True if indices are canonical, False otherwise.
+    """
     subs_dict = canonicalize_indices(indices)
     for key in subs_dict:
         if subs_dict[key] != key:
@@ -261,7 +267,16 @@ def get_isomorphic_terms(obs_list: list, start_order: Iterable = None) -> Genera
             yield list(perm) + new_list
 
 
-def compress(labels):
+def compress(labels: List[str]) -> List[str]:
+    """
+    Re-writes an index replacing two repeated terms by the term squared. E.g. ['i','i'] -> ['i^2'].
+    For more info on index lists see:
+    https://github.com/sibirica/SPIDER_discrete/wiki/Index-Lists-and-Labels
+
+
+    :param labels: List of index strings.
+    :return: Compressed list of index strings.
+    """
     local_copy = []
     skip = False
     for i in range(len(labels)):
@@ -276,7 +291,24 @@ def compress(labels):
 
 
 # make a dictionary of how paired indices are placed
-def place_pairs(*rank_array, min_ind2=0, curr_ind=1, start=0, answer_dict=None):
+def place_pairs(*rank_array,
+                min_ind2: int = 0,
+                curr_ind: int = 1,
+                start: int = 0,
+                answer_dict=None) -> Generator[Dict[int, Tuple[int]], None, None]:
+    """
+    Creates a generator that yields all possible dictionaries of how paired indices are places. For more info on labels
+    see:
+    https://github.com/sibirica/SPIDER_discrete/wiki/Index-Lists-and-Labels
+
+    :param rank_array: A list with 2n elements containing information about n Observable objects. The list stores each
+    Observable 's spatial derivative order and tensor rank.
+    :param min_ind2: For internal use on recursion.
+    :param curr_ind: For internal use on recursion.
+    :param start: For internal use on recursion.
+    :param answer_dict: For internal use on recursion.
+    :return: Generator of labels dictionaries of paired indices.
+    """
     if answer_dict is None:
         answer_dict = dict()
     while rank_array[start] <= 0:
@@ -298,7 +330,14 @@ def place_pairs(*rank_array, min_ind2=0, curr_ind=1, start=0, answer_dict=None):
         yield from place_pairs(*copy_array, min_ind2=min_ind2, curr_ind=curr_ind + 1, start=start, answer_dict=dict1)
 
 
-def place_indices(*rank_array):
+def place_indices(*rank_array) -> Generator[Dict[int, Tuple[int]], None, None]:
+    """
+    Creates a generator that yields all possible labels dictionaries that would describe 'rank_array'.
+
+    :param rank_array: A list with 2n elements containing information about n Observable objects. The list stores each
+    Observable 's spatial derivative order and tensor rank.
+    :return: Generator that yields all possible labels, valid or not.
+    """
     # only paired indices allowed
     if sum(rank_array) % 2 == 0:
         yield from place_pairs(*rank_array)
@@ -311,7 +350,16 @@ def place_indices(*rank_array):
                 yield from place_pairs(*copy_array, answer_dict={0: (single_ind,)})
 
 
-def list_labels(tensor):
+# Todo: Add hinting after moving LibraryTensor to commons.
+def list_labels(tensor) -> List[Dict[int, Tuple[int]]]:
+    """
+    Generates a list with all valid labels dictionaries for a given LibraryTensor object.
+    See test_valid_label() for the definition of a valid label. For more information on labels and indexes see:
+    https://github.com/sibirica/SPIDER_discrete/wiki/Index-Lists-and-Labels
+
+    :param tensor: A LibraryTensor object.
+    :return: List of all valid labels dictionaries for a given LibraryTensor.
+    """
     rank_array = []
     for term in tensor.obs_list:
         rank_array.append(term.dorder.xorder)
@@ -322,11 +370,21 @@ def list_labels(tensor):
 # check if index labeling is invalid (i.e. not in non-decreasing order among identical terms)
 # this excludes more incorrect options early than is_canonical
 # the lexicographic ordering rule fails at N=6 but this is accounted for by the canonicalization
-def test_valid_label(output_dict, obs_list):
+def test_valid_label(output_dict: Dict[int, Union[List[int], Tuple[int]]], obs_list: list) -> bool:
+    """
+    Checks if a labels dictionary is valid for a given obs_list.
+    A label is deemed invalid if its is not in non-decreasing order among identical terms
+    For more information regarding labels see:
+    https://github.com/sibirica/SPIDER_discrete/wiki/Index-Lists-and-Labels
+
+    :param output_dict: A labels dictionary.
+    :param obs_list: A list of observables (or any object that supports the == operation).
+    :return: False if the label is not in non-decreasing order among identical terms. True otherwise.
+    """
     if len(output_dict.keys()) < 2:  # not enough indices for something to be invalid
         return True
     # this can be implemented more efficiently, but the cost is negligible for reasonably small N
-    bins = []  # bin observations according to equality
+    bins: List[list] = []  # bin observations according to equality
     for obs in obs_list:
         found_match = False
         for bi in bins:
@@ -345,10 +403,34 @@ def test_valid_label(output_dict, obs_list):
             if obs_list[i] == obs_list[j]:
                 clist1 = CompList(index_list[2 * i] + index_list[2 * i + 1])
                 clist2 = CompList(index_list[2 * j] + index_list[2 * j + 1])
-                if not clist2.special_bigger(clist1):  # if (lexicographic) order decreases OR i appears late
+                if not clist2.special_bigger(clist1):  # if (lexicographic) order decreases OR 'i' appears late
                     return False
     return True
 
 
 rho = Observable('rho', 0)
 v = Observable('v', 1)
+
+
+# n is the integer to partition up to, k is the length of partitions
+def partition(n: int, k: int) -> Generator[Tuple[int], None, None]:
+    """
+    Given k bins (represented by a k-tuple), it yields every possible way to distribute x elements among those bins,
+    with x ranging from 0 to n. For example partition(n=3, k=2) -> [(0, 0), (0, 1), (0, 2), (0, 3), (1, 0), (1, 1),
+    (1, 2), (2, 0), (2, 1), (3, 0)].
+    NOTE: partition(n, 0) returns None, and partition(n, 1) is similar to range(n + 1), but the yields are wrapped in a
+    1-tuple.
+
+    :param n: Max number of elements to distribute.
+    :param k: Number of bins to distribute.
+    :return: Generator that yields all possible partitions.
+    """
+    if k < 1:
+        return
+    if k == 1:
+        for i in range(n + 1):
+            yield i,
+        return
+    for i in range(n + 1):
+        for result in partition(n - i, k - 1):
+            yield (i,) + result
