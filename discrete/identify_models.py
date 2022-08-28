@@ -22,8 +22,11 @@ def identify_equations(Q, reg_opts, library, threshold=1e-5, min_complexity=1,
     lib_max_complexity = max([term.complexity for term in library])  # generate list of derived terms up to here
     if max_complexity is None:
         max_complexity = int(np.ceil(lib_max_complexity))
-    lib_prim_data = set([tup for term in library for tup in unpack_prims(term)])
+
+    # note that ConstantTerm won't produce anything new
+    lib_prim_data = set([tup for term in library for tup in unpack_prims(term) if not isinstance(tup[0], ConstantTerm)])
     lib_prim_terms = make_terms(lib_prim_data)
+    # print(lib_prim_terms)
     for complexity in range(min_complexity, max_complexity + 1):
         while len(equations) < max_equations:
             selection = [(term, i) for (i, term) in enumerate(library) if term.complexity <= complexity
@@ -49,10 +52,7 @@ def identify_equations(Q, reg_opts, library, threshold=1e-5, min_complexity=1,
             derived_eqns[str(eq)] = []
             for lhs, rhs in infer_equations(eq, lib_prim_terms, lib_max_complexity):
                 excluded_terms.add(lhs)
-                if rhs is None:
-                    derived_eqns[str(eq)].append(Equation([lhs], [1]))
-                else:
-                    derived_eqns[str(eq)].append(-1 * TermSum([lhs]) + rhs)
+                derived_eqns[str(eq)].append(form_equation(lhs, rhs))
     return equations, lambdas, derived_eqns, excluded_terms
 
 
@@ -80,7 +80,15 @@ def interleave_identify(Qs, reg_opts_list, libraries, threshold=1e-5, min_comple
     return equations, lambdas, derived_eqns, excluded_terms
 
 
+def form_equation(lhs, rhs):
+    if rhs is None:
+        return Equation([lhs], [1])
+    else:
+        return TermSum([lhs]) + (-1) * rhs
+
+
 def make_equation_from_Xi(Xi, lambd, best_term, lambda1, sublibrary):
+    # print(Xi, lambd, best_term, lambda1, sublibrary)
     if lambda1 < lambd:
         return Equation([sublibrary[best_term]], [1]), lambda1
     else:
@@ -112,7 +120,7 @@ def make_terms(lib_prim_data):
 def infer_equations(equation, lib_prim_terms, max_complexity):
     lhs, rhs = equation.eliminate_complex_term()
     yield lhs, rhs
-    if lhs.complexity >= max_complexity:  # should be at most equal actually
+    if lhs.complexity >= max_complexity or isinstance(lhs, ConstantTerm):
         return
     # need to handle cases if lhs derivative has multiple terms and/or has coeff bigger than 1
     if rhs is not None:
@@ -127,12 +135,12 @@ def infer_equations(equation, lib_prim_terms, max_complexity):
     else:
         lhs_dt, rhs_dt = rebalance(lhs.dt(), None)
         lhs_dx, rhs_dx = rebalance(lhs.dx(), None)
-        yield lhs_dt, rhs_dt
-        yield lhs_dx, rhs_dx
+        yield from infer_equations(form_equation(lhs_dt, rhs_dt), lib_prim_terms, max_complexity)
+        yield from infer_equations(form_equation(lhs_dx, rhs_dx), lib_prim_terms, max_complexity)
         # compute multiplications
         for term in lib_prim_terms:
             if term.complexity + lhs.complexity <= max_complexity:
-                yield term * lhs, None
+                yield from infer_equations(form_equation(term*lhs, term*rhs), lib_prim_terms, max_complexity)
 
 
 def rebalance(lhs, rhs):

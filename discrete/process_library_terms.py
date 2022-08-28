@@ -1,3 +1,7 @@
+import numpy as np
+import copy
+from operator import mul
+
 from findiff import FinDiff
 from commons.weight import *
 from convolution import *
@@ -208,7 +212,7 @@ class SRDataset(object):  # structures all data associated with a given sparse r
                 # coarse-graining this particle (one dimension at a time)
                 rngs = []
                 g_nd = 1
-                for coord, d_min, d_max, i in zip(pt_pos, domain.min_corner, domain.max_corner,
+                for coord, d_min, d_max, j in zip(pt_pos, domain.min_corner, domain.max_corner,
                                                   range(self.n_dimensions - 1)):
                     # recenter so that 0 is start of domain
                     g, mn, mx = gauss1d(coord - d_min, self.scaled_sigma, truncate=self.cutoff,
@@ -216,7 +220,7 @@ class SRDataset(object):  # structures all data associated with a given sparse r
                     g_nd = np.multiply.outer(g_nd, g)
                     rng_array = np.array(range(mn, mx))  # coordinate range of kernel
                     # now need to add free axes so that the index ends up as an (n-1)-d array
-                    n_free_dims = self.n_dimensions - i - 2  # how many np.newaxis to add to index
+                    n_free_dims = self.n_dimensions - j - 2  # how many np.newaxis to add to index
                     expanded_rng_array = np.expand_dims(rng_array, axis=tuple(range(1, 1 + n_free_dims)))
                     rngs.append(expanded_rng_array)
                 # if len((g_nd*coeff).shape) > len(time_slice.shape):
@@ -256,11 +260,11 @@ class SRDataset(object):  # structures all data associated with a given sparse r
                         arr = np.zeros(np.append(dshape, len(self.domains)))
                         if isinstance(term, ConstantTerm):
                             # "short circuit" the evaluation to deal with constant term case
-                            for p, domain in enumerate(self.domains):
+                            for _p, domain in enumerate(self.domains):
                                 weight_arr = weight.get_weight_array(dshape)
                                 # I think this should not be weight_dxs?
                                 q[row_index, i] = int_arr(weight_arr, self.dxs)
-                                if debug and p == 0:
+                                if debug and _p == 0:
                                     print("Value: ", q[row_index, i])
                                 row_index += 1
                             continue
@@ -269,9 +273,8 @@ class SRDataset(object):  # structures all data associated with a given sparse r
                             # print(term, kc, list(get_dims(term, len(dshape)-1, kc)), space_orders, obs_dims)
                             # first, make labeling canonical within each CGP
                             if space_orders is None and obs_dims is None:
-                                nt = len(term.obs_list)
-                                space_orders = [[0] * len(dshape) for i in nt]
-                                canon_obs_dims = [[None] * i.cgp.rank for i in nt]
+                                space_orders = [[0] * len(dshape) for i in term.obs_list]
+                                canon_obs_dims = [[None] * i.cgp.rank for i in term.obs_list]
                             else:
                                 canon_obs_dims = []
                                 for sub_list, prim in zip(obs_dims, term.obs_list):
@@ -289,18 +292,19 @@ class SRDataset(object):  # structures all data associated with a given sparse r
                                         print("INTEGRATED BY PARTS:")
                                         print(mod_term, [o.dimorders for o in mod_term.obs_list],
                                               mod_weight)
-                                    for p, domain in enumerate(self.domains):
-                                        arr[..., p] += self.eval_term(mod_term, mod_weight,
-                                                                      domain, debug=(debug and p == 0))
+                                    for _p, domain in enumerate(self.domains):
+                                        arr[..., _p] += self.eval_term(mod_term, mod_weight,
+                                                                       domain, debug=(debug and _p == 0))
                             else:
-                                for p, domain in enumerate(self.domains):
-                                    arr[..., p] += self.eval_term(indexed_term, weight, domain,
-                                                                  debug=(debug and p == 0))
-                        for p in range(len(self.domains)):
-                            q[row_index, i] = int_arr(arr[..., p], self.dxs)
-                            if debug and p == 0:
+                                for _p, domain in enumerate(self.domains):
+                                    arr[..., _p] += self.eval_term(indexed_term, weight, domain,
+                                                                   debug=(debug and _p == 0))
+                        for _p in range(len(self.domains)):
+                            q[row_index, i] = int_arr(arr[..., _p], self.dxs)
+                            if debug and _p == 0:
                                 print("Value: ", q[row_index, i])
                             row_index += 1
+            # noinspection PyPep8Naming
             self.libs[rank].Q = q
             # return q
 
@@ -321,11 +325,12 @@ class SRDataset(object):  # structures all data associated with a given sparse r
                 self.scale_dict[name] = dict()
                 # if these are vector quantities the results could be wonky in the unlikely
                 # case a vector field is consistently aligned with one of the axes
-                self.scale_dict[name]['mean'] = np.mean(np.linalg.norm(self.data_dict[name]))
+                self.scale_dict[name]['mean'] = np.mean(
+                    np.linalg.norm(self.data_dict[name]) / np.sqrt(self.data_dict[name].size))
                 self.scale_dict[name]['std'] = np.std(self.data_dict[name])
         # also need to handle density separately
         self.scale_dict['rho'] = dict()
-        self.scale_dict['rho']['mean'] = self.particle_pos.shape[0] / np.prod(self.world_size)
+        self.scale_dict['rho']['mean'] = self.particle_pos.shape[0] / np.prod(self.world_size[:-1])
         rho_ind = find_term(self.cgps, 'rho')
         rho_cgp = self.cgps[rho_ind]
         rho_std = np.std(np.dstack([self.cg_dict[rho_cgp, (), domain] for domain in self.domains]))
@@ -463,7 +468,7 @@ def int_by_parts_dim(term, weight, dim):
     # best_prim, next_best, third_best = None, None, None
     # best_i, next_i, third_i = None, None, None
     best_prim, next_prim = None, None
-    best_i, next_i = None, None
+    num_next = 0
     for (i, prim) in enumerate(term.obs_list):
         if prim.nderivs == term.nderivs:
             if best_prim is None:
@@ -474,12 +479,15 @@ def int_by_parts_dim(term, weight, dim):
             else:  # multiple candidate terms -> integrating by parts will not help
                 yield term, weight, True
                 return
-        elif prim.nderivs == term.nderivs - 1 and next_prim is None:
-            next_i, next_prim = i, prim
-        # elif prim.nderivs == term.nderivs-2:
-        #    third_i, third_best = i, prim
+        elif prim.nderivs == term.nderivs - 1:
+            if next_prim is None:
+                num_next, next_prim = 1, prim
+            elif prim == next_prim:
+                num_next += 1
+            else:  # not all one-lower terms are successors of best_prim
+                yield term, weight, True
     # check viability by cases
-    newords = best_prim.dimorders.copy()
+    newords = copy.deepcopy(best_prim.dimorders)
     newords[dim] -= 1
     new_weight = weight.increment(dim)
     new_prim = IndexedPrimitive(best_prim, newords=newords)
@@ -492,25 +500,12 @@ def int_by_parts_dim(term, weight, dim):
         return
     else:
         # print(rest, next_prim)
-        rest = rest.drop(next_prim)
         if next_prim.succeeds(best_prim, dim):  # check if next_best goes with best
-            # check if next best is unique
-            for obs in rest.obs_list:
-                if obs == next_prim:  # can stop here because we limit the number of terms
-                    # x' * x * x case
-                    # print(rest, next_prim)
-                    rest = rest.drop(obs)
-                    for summand in rest.diff(dim):
-                        yield next_prim * next_prim * next_prim * summand, -1 / 3 * weight, False
-                    yield next_prim * next_prim * next_prim * rest, -1 / 3 * new_weight, False
-                    return
-                elif obs.nderivs == term.nderivs - 1:  # not unique and doesn't match
-                    yield term, weight, True
-                    return
-            # x' * x case
+            rest = rest.drop_all(next_prim)
+            num_dupes = 1 + num_next
             for summand in rest.diff(dim):
-                yield next_prim * next_prim * summand, -1 / 2 * weight, False
-            yield next_prim * next_prim * rest, -1 / 2 * new_weight, False
+                yield reduce(mul, [next_prim] * num_dupes) * summand, -1 / num_dupes * weight, False
+            yield reduce(mul, [next_prim] * num_dupes) * rest, -1 / num_dupes * new_weight, False
             return
         else:
             yield term, weight, True

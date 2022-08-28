@@ -2,7 +2,8 @@ import numpy as np
 
 
 def sparse_reg(theta, opts=None, threshold='pareto', brute_force=True, delta=1e-10, epsilon=1e-2, gamma=2,
-               verbose=False, n_terms=-1, char_sizes=None, row_norms=None, valid_single=None, avoid=None, subinds=None):
+               verbose=False, n_terms=-1, char_sizes=None, row_norms=None, valid_single=None, avoid=None, subinds=None,
+               anchor_col=0):
     # compute sparse regression on Theta * xi = 0
     # Theta: matrix of integrated terms
     # char_sizes: vector of characteristic term sizes (per column)
@@ -11,12 +12,27 @@ def sparse_reg(theta, opts=None, threshold='pareto', brute_force=True, delta=1e-
     # opts: dictionary of options
     # avoid: coefficient vectors to be orthogonal to
     # n_terms: if not -1, select from models with this number of terms and below
-    # and a  lot more not described above
+    # and a lot more not described above
 
     if avoid is None:
         avoid = []
     theta = np.copy(theta)  # avoid bugs where array is modified in place
-    thetanm = np.linalg.norm(theta)
+    if row_norms is not None:
+        for row in range(len(row_norms)):
+            # rownm = np.linalg.norm(Theta[row, :])
+            # if rownm != 0:
+            #    Theta[row, :] *= (row_norms[row]/rownm)
+            theta[row, :] *= row_norms[row]
+    if char_sizes is not None:  # do this here: char_sizes are indexed by full column set
+        char_sizes = np.array(char_sizes)
+        char_sizes /= np.max(char_sizes)
+        for term in range(len(char_sizes)):
+            theta[:, term] = theta[:, term] / char_sizes[term]  # renormalize by characteristic size
+    if anchor_col is None:  # do this exactly here: when we divide by thetanm later, we work with the normalized columns
+        thetanm = np.linalg.norm(theta)
+    else:  # do this here: anchor_col is also indexed by full columns set
+        thetanm = np.linalg.norm(theta[:, anchor_col])
+
     if subinds is not None:
         if not subinds:  # no inds allowed at all
             return None, np.inf, None, np.inf
@@ -24,35 +40,22 @@ def sparse_reg(theta, opts=None, threshold='pareto', brute_force=True, delta=1e-
         if char_sizes is not None:
             char_sizes = np.array(char_sizes)
             char_sizes = char_sizes[subinds]
-        if row_norms is not None:
-            row_norms = np.array(row_norms)
-            row_norms = row_norms[subinds]
         if valid_single is not None:
             valid_single = np.array(valid_single)
             valid_single = valid_single[subinds]
-    if row_norms is not None:
-        for row in range(len(row_norms)):
-            rownm = np.linalg.norm(theta[row, :])
-            if rownm != 0:
-                theta[row, :] *= (row_norms[row] / rownm)
 
-    # functionality probably outdated with more advanced model selection code
+            # functionality probably outdated with more advanced model selection code
     m = 100 * theta.shape[0]
     for xi in avoid:
         theta = np.vstack([theta, m * np.transpose(xi)])  # acts as a constraint - weights should be orthogonal to xi
 
     h, w = theta.shape
-    thetanm /= np.sqrt(w)  # scale norm of Theta by square root of # columns to fix scaling of Theta@xi vs thetanm
+    if anchor_col is None:
+        thetanm /= np.sqrt(w)  # scale norm of Theta by square root of # columns to fix scaling of Theta@xi vs thetanm
     # beta = w/h # aspect ratio
 
     if valid_single is None:
         valid_single = np.ones(shape=(w, 1))
-
-    if char_sizes is not None:
-        char_sizes = np.array(char_sizes)
-        char_sizes /= np.max(char_sizes)
-        for term in range(len(char_sizes)):
-            theta[:, term] = theta[:, term] / char_sizes[term]  # renormalize by characteristic size
 
     u, sigma, v = np.linalg.svd(theta, full_matrices=True)
     v = v.transpose()  # since numpy SVD returns the transpose
@@ -190,7 +193,8 @@ def opt_shrinker(y, beta):
 
 def regress(Theta, col_numbers):  # regression on a fixed set of terms
     h, w = Theta.shape
-    thetanm = np.linalg.norm(Theta)
+    # thetanm = np.linalg.norm(Theta)
+    thetanm = np.linalg.norm(Theta[:, 0])
     smallinds = np.ones(shape=(w,))
     xi = np.zeros(shape=(w,))
     smallinds[np.array(col_numbers)] = 0

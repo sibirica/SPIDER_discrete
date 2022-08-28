@@ -108,7 +108,7 @@ def form_equation(lhs, rhs):
     if rhs is None:
         return Equation([lhs], [1])
     else:
-        return -1 * TermSum([lhs]) + rhs
+        return TermSum([lhs]) + (-1) * rhs
 
 
 def obs_to_term(observable):

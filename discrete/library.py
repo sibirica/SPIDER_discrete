@@ -1,82 +1,11 @@
 import copy
-from dataclasses import dataclass, field
 from functools import reduce
 from itertools import permutations
 from operator import add
-from typing import List
+
 import numpy as np
 
-
-@dataclass(order=True)
-class CompPair(object):
-    torder: int
-    xorder: int
-    complexity: int = field(init=False)
-
-    def __post_init__(self):
-        self.complexity = self.torder + self.xorder
-
-    def __repr__(self):
-        return f'({self.torder}, {self.xorder})'
-
-
-@dataclass
-class CompList(object):
-    in_list: List[int]
-
-    def __ge__(self, other):
-        for x, y in zip(self.in_list, other.in_list):
-            if x > y:
-                return True
-            elif x < y:
-                return False
-        return True
-
-    def special_bigger(self, other):
-        if 0 in self.in_list and 0 not in other.in_list:
-            return False
-        elif 0 in other.in_list and 0 not in self.in_list:
-            return True
-        else:
-            return self >= other
-
-
-class DerivativeOrder(CompPair):
-    def dt(self):
-        return DerivativeOrder(self.torder + 1, self.xorder)
-
-    def dx(self):
-        return DerivativeOrder(self.torder, self.xorder + 1)
-
-
-@dataclass
-class Observable(object):
-    string: str
-    rank: int
-
-    def __repr__(self):
-        return self.string
-
-    # For sorting: convention is in ascending order of name
-
-    def __lt__(self, other):
-        if not isinstance(other, Observable):
-            raise ValueError("Second argument is not an observable.")
-        return self.string < other.string
-
-    def __gt__(self, other):
-        if not isinstance(other, Observable):
-            raise ValueError("Second argument is not an observable.")
-        return other.__lt__(self)
-
-    def __eq__(self, other):
-        if not isinstance(other, Observable):
-            raise ValueError("Second argument is not an observable.")
-        return self.string == other.string
-
-    def __ne__(self, other):
-        return not self.__eq__(other)
-
+from commons.library import *
 
 dim_to_let = {0: 'x', 1: 'y', 2: 'z'}
 
@@ -120,22 +49,23 @@ class CoarseGrainedPrimitive(object):  # represents rho[product of obs_list]
 
     def __lt__(self, other):
         if not isinstance(other, CoarseGrainedPrimitive):
-            raise ValueError("Second argument is not an observable.")
+            raise TypeError("Second argument is not a CoarseGrainedPrimitive.")
         for a, b in zip(self.obs_list, other.obs_list):
             if a == b:
                 continue
             else:
                 return a < b
-        return False
+        return len(self.obs_list) < len(other.obs_list)
 
+    # TODO: This may be redundant. I believe python does this proccess internally.
     def __gt__(self, other):
         if not isinstance(other, CoarseGrainedPrimitive):
-            raise ValueError("Second argument is not an observable.")
+            raise TypeError("Second argument is not a CoarseGrainedPrimitive.")
         return other.__lt__(self)
 
     def __eq__(self, other):
         if not isinstance(other, CoarseGrainedPrimitive):
-            raise ValueError("Second argument is not an observable.")
+            raise TypeError("Second argument is not a CoarseGrainedPrimitive.")
         return self.obs_list == other.obs_list
 
     def __ne__(self, other):
@@ -145,12 +75,12 @@ class CoarseGrainedPrimitive(object):  # represents rho[product of obs_list]
     #    if isinstance(other, CoarseGrainedPrimitive):
     #        return CoarseGrainedPrimitive(self.obs_list + other.obs_list)
     #    else:
-    #        raise ValueError(f"Cannot multiply {type(self)}, {type(other)}")
+    #        raise TypeError(f"Cannot multiply {type(self)}, {type(other)}")
 
     def index_canon(self, inds):
         if len(inds) == 0:
             return inds
-        new_inds = inds.copy()
+        new_inds = copy.deepcopy(inds)
         reps = 1
         prev = self.obs_list[0]
         obs_start_ind = 0
@@ -189,6 +119,7 @@ class CoarseGrainedPrimitive(object):  # represents rho[product of obs_list]
         return True
 
 
+# noinspection PyArgumentList
 @dataclass
 class LibraryPrimitive(object):
     dorder: DerivativeOrder
@@ -201,20 +132,7 @@ class LibraryPrimitive(object):
         self.complexity = self.dorder.complexity + self.cgp.complexity
 
     def __repr__(self):
-        torder = self.dorder.torder
-        xorder = self.dorder.xorder
-        if torder == 0:
-            tstring = ""
-        elif torder == 1:
-            tstring = "dt "
-        else:
-            tstring = f"dt^{torder} "
-        if xorder == 0:
-            xstring = ""
-        elif xorder == 1:
-            xstring = "dx "
-        else:
-            xstring = f"dx^{xorder} "
+        tstring, xstring = create_derivative_string(self.dorder.torder, self.dorder.xorder)
         return f'{tstring}{xstring}{self.cgp}'
 
     def __hash__(self):
@@ -224,7 +142,7 @@ class LibraryPrimitive(object):
 
     def __lt__(self, other):
         if not isinstance(other, LibraryPrimitive):
-            raise ValueError("Second argument is not a LibraryPrimitive.")
+            raise TypeError("Second argument is not a LibraryPrimitive.")
         if self.cgp == other.cgp:
             return self.dorder < other.dorder
         else:
@@ -232,12 +150,12 @@ class LibraryPrimitive(object):
 
     def __gt__(self, other):
         if not isinstance(other, LibraryPrimitive):
-            raise ValueError("Second argument is not a LibraryPrimitive.")
+            raise TypeError("Second argument is not a LibraryPrimitive.")
         return other.__lt__(self)
 
     def __eq__(self, other):
         if not isinstance(other, LibraryPrimitive):
-            raise ValueError("Second argument is not a LibraryPrimitive.")
+            raise TypeError("Second argument is not a LibraryPrimitive.")
         return self.cgp == other.cgp and self.dorder == other.dorder
 
     def __ne__(self, other):
@@ -293,12 +211,12 @@ class IndexedPrimitive(LibraryPrimitive):
                 and self.obs_dims == other.obs_dims)
 
     def succeeds(self, other, dim):
-        copyorders = self.dimorders.copy()
+        copyorders = copy.deepcopy(self.dimorders)
         copyorders[dim] += 1
         return copyorders == other.dimorders and self.cgp == other.cgp and self.obs_dims == other.obs_dims
 
     def diff(self, dim):
-        newords = self.dimorders.copy()
+        newords = copy.deepcopy(self.dimorders)
         newords[dim] += 1
         return IndexedPrimitive(self, newords=newords)
 
@@ -325,7 +243,7 @@ class LibraryTensor(object):  # unindexed version of LibraryTerm
         elif other == 1:
             return self
         else:
-            raise ValueError(f"Cannot multiply {type(self)}, {type(other)}")
+            raise TypeError(f"Cannot multiply {type(self)}, {type(other)}")
 
     def __rmul__(self, other):
         if other != 1:
@@ -336,25 +254,6 @@ class LibraryTensor(object):  # unindexed version of LibraryTerm
     def __repr__(self):
         repstr = [str(obs) + ' * ' for obs in self.obs_list]
         return reduce(add, repstr)[:-3]
-
-
-def labels_to_index_list(labels, n):  # n = number of observables
-    index_list = [list() for _ in range(2 * n)]
-    for key in sorted(labels.keys()):
-        for a in labels[key]:
-            index_list[a].append(key)
-    return index_list
-
-
-def index_list_to_labels(index_list):
-    labels = dict()
-    for i, li in enumerate(index_list):
-        for ind in li:
-            if ind in labels.keys():
-                labels[ind].append(i)
-            else:
-                labels[ind] = [i]
-    return labels
 
 
 def labels_to_ordered_index_list(labels, ks):
@@ -375,36 +274,6 @@ def ordered_index_list_to_labels(index_list):
             else:
                 labels[ind] = [(i, j)]
     return labels
-
-
-def flatten(t):
-    return [item for sublist in t for item in sublist]
-
-
-num_to_let_dict = {0: 'i', 1: 'j', 2: 'k', 3: 'l', 4: 'm', 5: 'n', 6: 'p'}
-let_to_num_dict = {v: k for k, v in num_to_let_dict.items()}  # inverted dict
-
-
-def num_to_let(num_list):
-    return [[num_to_let_dict[i] for i in li] for li in num_list]
-
-
-def canonicalize_indices(indices):
-    curr_ind = 1
-    subs_dict = {0: 0}
-    for num in indices:
-        if num not in subs_dict.keys():
-            subs_dict[num] = curr_ind
-            curr_ind += 1
-    return subs_dict
-
-
-def is_canonical(indices):
-    subs_dict = canonicalize_indices(indices)
-    for key in subs_dict:
-        if subs_dict[key] != key:
-            return False
-    return True
 
 
 # each label maps to [(bin1, order1), (bin2, order2)], treat sublists of index_list as ordered.
@@ -477,7 +346,7 @@ class LibraryTerm(object):
         elif isinstance(other, Equation):
             return other.__mul__(self)
         else:
-            raise ValueError(f"Cannot multiply {type(self)}, {type(other)}")
+            raise TypeError(f"Cannot multiply {type(self)}, {type(other)}")
 
     def __rmul__(self, other):
         return self.__mul__(other)
@@ -573,28 +442,13 @@ class LibraryTerm(object):
         return ts.canonicalize()
 
 
-def get_isomorphic_terms(obs_list, start_order=None):
-    if start_order is None:
-        start_order = list(range(len(obs_list)))
-    if len(obs_list) == 0:
-        yield []
-        return
-    reps = 1
-    prev = obs_list[0]
-    while reps < len(obs_list) and prev == obs_list[reps]:
-        reps += 1
-    for new_list in get_isomorphic_terms(obs_list[reps:], start_order[reps:]):
-        for perm in permutations(start_order[:reps]):
-            yield list(perm) + new_list
-
-
 class IndexedTerm(object):  # LibraryTerm with i's mapped to x/y/z
     def __init__(self, libterm=None, space_orders=None, nested_obs_dims=None, obs_list=None):
         if obs_list is None:  # normal "from scratch" constructor
             self.rank = libterm.rank
             self.complexity = libterm.complexity
             nterms = len(libterm.obs_list)
-            self.obs_list = libterm.obs_list.copy()
+            self.obs_list = copy.deepcopy(libterm.obs_list)
             for i, obs, sp_ord, obs_dims in zip(range(nterms), libterm.obs_list, space_orders, nested_obs_dims):
                 self.obs_list[i] = IndexedPrimitive(obs, sp_ord, obs_dims)
             self.ndims = len(space_orders[0]) + 1
@@ -623,10 +477,17 @@ class IndexedTerm(object):  # LibraryTerm with i's mapped to x/y/z
         else:
             return IndexedTerm(obs_list=self.obs_list + [other])
 
-    def drop(self, obs):
-        obs_list_copy = self.obs_list.copy()
+    def drop(self, obs):  # remove one instance of obs
+        obs_list_copy = copy.deepcopy(self.obs_list)
         if len(obs_list_copy) > 1:
             obs_list_copy.remove(obs)
+        else:
+            obs_list_copy = []
+        return IndexedTerm(obs_list=obs_list_copy)
+
+    def drop_all(self, obs):  # remove *aLL* instances of obs
+        if len(self.obs_list) > 1:
+            obs_list_copy = list(filter(obs.__ne__, self.obs_list))
         else:
             obs_list_copy = []
         return IndexedTerm(obs_list=obs_list_copy)
@@ -656,6 +517,14 @@ class ConstantTerm(IndexedTerm):
     def __rmul__(self, other):
         return other
 
+    @staticmethod
+    def dt():
+        return None
+
+    @staticmethod
+    def dx():
+        return None
+
 
 def label_repr(prim, ind1, ind2):
     torder = prim.dorder.torder
@@ -675,99 +544,6 @@ def label_repr(prim, ind1, ind2):
         xlist = [f"d{letter} " for letter in ind1]
         xstring = reduce(add, xlist)
     return tstring + xstring + cgp.index_str(ind2)
-
-
-def compress(labels):
-    local_copy = []
-    skip = False
-    for i in range(len(labels)):
-        if i < len(labels) - 1 and labels[i] == labels[i + 1]:
-            local_copy.append(labels[i] + '^2')
-            skip = True
-        elif not skip:
-            local_copy.append(labels[i])
-        else:
-            skip = False
-    return local_copy
-
-
-# make a dictionary of how paired indices are placed
-def place_pairs(*rank_array, min_ind2=0, curr_ind=1, start=0, answer_dict=None):
-    if answer_dict is None:
-        answer_dict = dict()
-    while rank_array[start] <= 0:
-        start += 1
-        min_ind2 = 0
-        if start >= len(rank_array):
-            yield answer_dict
-            return
-    ind1 = start
-    for ind2 in range(min_ind2, len(rank_array)):
-        if (ind1 == ind2 and rank_array[ind1] == 1) or rank_array[ind2] == 0:
-            continue
-        min_ind2 = ind2
-        dict1 = answer_dict.copy()
-        dict1.update({curr_ind: (ind1, ind2)})
-        copy_array = np.array(rank_array)
-        copy_array[ind1] -= 1
-        copy_array[ind2] -= 1
-        yield from place_pairs(*copy_array, min_ind2=min_ind2, curr_ind=curr_ind + 1, start=start, answer_dict=dict1)
-
-
-def place_indices(*rank_array):
-    # only paired indices allowed
-    if sum(rank_array) % 2 == 0:
-        yield from place_pairs(*rank_array)
-    # one single index
-    else:
-        for single_ind in range(len(rank_array)):
-            if rank_array[single_ind] > 0:
-                copy_array = np.array(rank_array)
-                copy_array[single_ind] -= 1
-                yield from place_pairs(*copy_array, answer_dict={0: (single_ind,)})
-
-
-def list_labels(tensor):
-    rank_array = []
-    for term in tensor.obs_list:
-        rank_array.append(term.dorder.xorder)
-        rank_array.append(term.cgp.rank)
-    return [output_dict for output_dict in place_indices(*rank_array) if test_valid_label(output_dict, tensor.obs_list)]
-
-
-# check if index labeling is invalid (i.e. not in non-decreasing order among identical terms)
-# this excludes more incorrect options early than is_canonical
-# the lexicographic ordering rule fails at N=6 but this is accounted for by the canonicalization
-def test_valid_label(output_dict, obs_list):  # it would arguably be smarter to pass an index list
-    if len(output_dict.keys()) < 2:  # not enough indices for something to be invalid
-        return True
-    # this can be implemented more efficiently, but the cost is negligible for reasonably small N
-    bins = []  # bin observations according to equality
-    for obs in obs_list:
-        found_match = False
-        for bi in bins:
-            if bi is not None and obs == bi[0]:
-                bi.append(obs)
-                found_match = True
-        if not found_match:
-            bins.append([obs])
-    if len(bins) == len(obs_list):
-        return True  # no repeated values
-    # else need to check more carefully
-    n = len(obs_list)
-    index_list = labels_to_index_list(output_dict, n)
-    # don't think this test is needed since this only gets broken later
-    # for sub_list, prim in zip(index_list[1::2], obs_list):
-    #    if sub_list != [] and not prim.cgp.is_index_canon(sub_list):
-    #        return False
-    for i in range(n):
-        for j in range(i + 1, n):
-            if obs_list[i] == obs_list[j]:
-                clist1 = CompList(index_list[2 * i] + index_list[2 * i + 1])
-                clist2 = CompList(index_list[2 * j] + index_list[2 * j + 1])
-                if not clist2.special_bigger(clist1):  # if (lexicographic) order decreases OR i appears late
-                    return False
-    return True
 
 
 def yield_tuples_up_to(bounds):
@@ -798,21 +574,21 @@ def raw_library_tensors(observables, orders, max_order=None, zeroidx=0):
     # as long as it's lexicographically less than previous order; take at least one of first observable
 
     # print(orders, max_order, zeroidx)
-    N = len(observables)
-    if orders[N] == 0:
+    n = len(observables)
+    if orders[n] == 0:
         if sum(orders) > 0:  # invalid distribution
             return
         else:
             yield 1
             return
-    while zeroidx < N and orders[zeroidx] == 0:
+    while zeroidx < n and orders[zeroidx] == 0:
         zeroidx += 1
-    if zeroidx < N:
+    if zeroidx < n:
         orders[zeroidx] -= 1  # always put in at least one of these to maintain lexicographic order
 
     # orders = obs_orders + [nt, nx]
     # print("ORDERS: ", orders)
-    for tup in yield_legal_tuples(orders[:N] + [0] + orders[N + 1:]):  # ignore the rho index
+    for tup in yield_legal_tuples(orders[:n] + [0] + orders[n + 1:]):  # ignore the rho index
         orders_copy = orders.copy()
         popped_orders = list(tup)
         # print("Popped: ", popped_orders)
@@ -821,10 +597,10 @@ def raw_library_tensors(observables, orders, max_order=None, zeroidx=0):
         if sum(orders_copy[:-2]) == 0 and sum(
                 orders_copy[-2:]) > 0:  # all observables + rho popped but derivatives remain
             continue  # otherwise we will have duplicates from omitting derivatives
-        if zeroidx < N:
+        if zeroidx < n:
             popped_orders[zeroidx] += 1  # re-adding the one
-        orders_copy[N] -= 1  # account for the rho we used
-        popped_orders[N] += 1  # include the rho here as well
+        orders_copy[n] -= 1  # account for the rho we used
+        popped_orders[n] += 1  # include the rho here as well
         po_cl = CompList(popped_orders)
         if max_order is None or po_cl <= max_order:
             obs_list = []
@@ -850,12 +626,12 @@ def generate_terms_to(order, observables=None, max_observables=999):
     observables = sorted(observables, reverse=True)  # ordering opposite of canonicalization rules for now
     libterms = list()
     libterms.append(ConstantTerm())
-    N = order  # max number of "blocks" to include
-    K = len(observables)
-    partitions = partition(N, K + 3)  # K observables + rho + 2 derivative dimensions
+    n = order  # max number of "blocks" to include
+    k = len(observables)
+    partitions = partition(n, k + 3)  # k observables + rho + 2 derivative dimensions
     # not a valid term if no observables or max exceeded
     for part in partitions:
-        if part[K] > 0 and sum(part[:K]) <= max_observables:  # popped a rho, did not exceed max observables
+        if part[k] > 0 and sum(part[:k]) <= max_observables:  # popped a rho, did not exceed max observables
             # nt, nx = part[-2:]
             # obs_orders = part[:-2]
             # for tensor in raw_library_tensors(observables, obs_orders, nt, nx):
@@ -901,20 +677,8 @@ def get_library_terms(tensor, index_list):
     obs_index_list = index_list[1::2]
     for perm_list in get_valid_reorderings(tensor.obs_list, obs_index_list):
         # print("perm_list:", perm_list)
+        # noinspection PyTypeChecker
         yield LibraryTerm(tensor, index_list=flatten(zip(der_index_list, perm_list)))
-
-
-def partition(n, k):
-    """n is the integer to partition up to, k is the length of partitions"""
-    if k < 1:
-        return
-    if k == 1:
-        for i in range(n + 1):
-            yield i,
-        return
-    for i in range(n + 1):
-        for result in partition(n - i, k - 1):
-            yield (i,) + result
 
 
 class Equation(object):  # can represent equation (expression = 0) OR expression
@@ -931,11 +695,11 @@ class Equation(object):  # can represent equation (expression = 0) OR expression
         if isinstance(other, Equation):
             return Equation(self.term_list + other.term_list, self.coeffs + other.coeffs)
         else:
-            raise ValueError(f"Second argument {other}) is not an equation.")
+            raise TypeError(f"Second argument {other}) is not an equation.")
 
     def __rmul__(self, other):
         if isinstance(other, LibraryTerm):
-            return Equation([other * term for term in self.term_list], self.coeffs)
+            return Equation([(other * term).canonicalize() for term in self.term_list], self.coeffs)
         else:  # multiplication by number
             return Equation(self.term_list, [other * c for c in self.coeffs])
 
@@ -950,22 +714,20 @@ class Equation(object):  # can represent equation (expression = 0) OR expression
         return self.__repr__() + " = 0"
 
     def __eq__(self, other):
-        for term, ot in zip(self.term_list, other.term_list):
-            if term != ot:
-                return False
-        for coeff, ot in zip(self.coeffs, other.coeffs):
-            if term != ot:
-                return False
-        return True
+        return self.term_list == other.term_list and self.coeffs == other.coeffs
 
     def dt(self):
         components = [coeff * term.dt() for term, coeff in zip(self.term_list, self.coeffs)
                       if not isinstance(term, ConstantTerm)]
+        if not components:
+            return None
         return reduce(add, components).canonicalize()
 
     def dx(self):
         components = [coeff * term.dx() for term, coeff in zip(self.term_list, self.coeffs)
                       if not isinstance(term, ConstantTerm)]
+        if not components:
+            return None
         return reduce(add, components).canonicalize()
 
     def canonicalize(self):
@@ -1016,8 +778,8 @@ class TermSum(Equation):
 
     def __add__(self, other):
         if isinstance(other, TermSum):
-            return TermSum(self.term_list + other.term_list, self.coeffs + other.coeffs)
+            return TermSum(self.term_list + other.term_list)
         elif isinstance(other, Equation):
             return Equation(self.term_list + other.term_list, self.coeffs + other.coeffs)
         else:
-            raise ValueError(f"Second argument {other}) is not an equation.")
+            raise TypeError(f"Second argument {other}) is not an equation.")
