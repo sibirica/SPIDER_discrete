@@ -141,7 +141,7 @@ def sparse_reg(theta, opts=None, threshold='pareto', brute_force=True, delta=1e-
             margins[-1] = np.inf
             break
     # fill in last xi
-    xis[w] = xi
+    xis[w-1] = xi
     # decision rules
     if threshold == "pareto":
         y_mar, i_mar = max(margins), np.argmax(margins)
