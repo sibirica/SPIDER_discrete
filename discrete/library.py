@@ -1,8 +1,8 @@
 import copy
 from functools import reduce
-from itertools import permutations
 from operator import add
-
+from itertools import permutations
+from numpy import inf
 import numpy as np
 
 from commons.library import *
@@ -502,7 +502,7 @@ class ConstantTerm(IndexedTerm):
     def __init__(self):
         self.obs_list = []
         self.rank = 0
-        self.complexity = 1
+        self.complexity = 0
         self.is_canonical = True
 
     def __repr__(self):
@@ -638,19 +638,20 @@ def generate_terms_to(order, observables=None, max_observables=999):
             # print("\n\n\n")
             # print("Partition:", part)
             for tensor in raw_library_tensors(observables, list(part)):
-                # print("Tensor", tensor)
-                # print("List of labels", list_labels(tensor))
-                for label in list_labels(tensor):
-                    # print("Label", label)
-                    index_list = labels_to_index_list(label, len(tensor.obs_list))
-                    # print("Index list", index_list)
-                    for lt in get_library_terms(tensor, index_list):
-                        # print("LT", lt)
-                        # note: not sure where to put this check
-                        canon = lt.canonicalize()
-                        if lt.is_canonical:
-                            # print("is canonical")
-                            libterms.append(lt)
+                if tensor.complexity <= order:  # this may not be true since we set complexity of rho[1]>1
+                    # print("Tensor", tensor)
+                    # print("List of labels", list_labels(tensor))
+                    for label in list_labels(tensor):
+                        # print("Label", label)
+                        index_list = labels_to_index_list(label, len(tensor.obs_list))
+                        # print("Index list", index_list)
+                        for lt in get_library_terms(tensor, index_list):
+                            # print("LT", lt)
+                            # note: not sure where to put this check
+                            canon = lt.canonicalize()
+                            if lt.is_canonical:
+                                # print("is canonical")
+                                libterms.append(lt)
     return libterms
 
 

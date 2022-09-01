@@ -22,7 +22,6 @@ def identify_equations(Q, reg_opts, library, threshold=1e-5, min_complexity=1,
     lib_max_complexity = max([term.complexity for term in library])  # generate list of derived terms up to here
     if max_complexity is None:
         max_complexity = int(np.ceil(lib_max_complexity))
-
     # note that ConstantTerm won't produce anything new
     lib_prim_data = set([tup for term in library for tup in unpack_prims(term) if not isinstance(tup[0], ConstantTerm)])
     lib_prim_terms = make_terms(lib_prim_data)
@@ -31,7 +30,7 @@ def identify_equations(Q, reg_opts, library, threshold=1e-5, min_complexity=1,
         while len(equations) < max_equations:
             selection = [(term, i) for (i, term) in enumerate(library) if term.complexity <= complexity
                          and term not in excluded_terms]
-            if len(selection) == 0:
+            if len(selection) == 0:  # no valid terms of this complexity
                 break
             sublibrary = [s[0] for s in selection]
             inds = [s[1] for s in selection]
@@ -126,12 +125,12 @@ def infer_equations(equation, lib_prim_terms, max_complexity):
     if rhs is not None:
         lhs_dt, rhs_dt = rebalance(lhs.dt(), rhs.dt())
         lhs_dx, rhs_dx = rebalance(lhs.dx(), rhs.dx())
-        yield lhs_dt, rhs_dt
-        yield lhs_dx, rhs_dx
+        yield from infer_equations(form_equation(lhs_dt, rhs_dt), lib_prim_terms, max_complexity)
+        yield from infer_equations(form_equation(lhs_dx, rhs_dx), lib_prim_terms, max_complexity)
         # compute multiplications
         for term in lib_prim_terms:
             if term.complexity + lhs.complexity <= max_complexity:
-                yield term * lhs, term * rhs
+                yield from infer_equations(form_equation(term * lhs, term * rhs), lib_prim_terms, max_complexity)
     else:
         lhs_dt, rhs_dt = rebalance(lhs.dt(), None)
         lhs_dx, rhs_dx = rebalance(lhs.dx(), None)
@@ -140,7 +139,7 @@ def infer_equations(equation, lib_prim_terms, max_complexity):
         # compute multiplications
         for term in lib_prim_terms:
             if term.complexity + lhs.complexity <= max_complexity:
-                yield from infer_equations(form_equation(term*lhs, term*rhs), lib_prim_terms, max_complexity)
+                yield from infer_equations(form_equation(term * lhs, None), lib_prim_terms, max_complexity)
 
 
 def rebalance(lhs, rhs):

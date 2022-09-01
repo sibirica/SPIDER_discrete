@@ -363,7 +363,10 @@ def list_labels(tensor) -> List[Dict[int, Tuple[int]]]:
     rank_array = []
     for term in tensor.obs_list:
         rank_array.append(term.dorder.xorder)
-        rank_array.append(term.observable.rank)
+        if hasattr(term, 'observable'):
+            rank_array.append(term.observable.rank)
+        else:
+            rank_array.append(term.cgp.rank)
     return [output_dict for output_dict in place_indices(*rank_array) if test_valid_label(output_dict, tensor.obs_list)]
 
 

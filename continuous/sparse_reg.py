@@ -3,7 +3,7 @@ import numpy as np
 
 def sparse_reg(theta, opts=None, threshold='pareto', brute_force=True, delta=1e-10, epsilon=1e-2, gamma=2,
                verbose=False, n_terms=-1, char_sizes=None, row_norms=None, valid_single=None, avoid=None, subinds=None,
-               anchor_col=0):
+               anchor_norm=None):
     # compute sparse regression on Theta * xi = 0
     # Theta: matrix of integrated terms
     # char_sizes: vector of characteristic term sizes (per column)
@@ -25,13 +25,14 @@ def sparse_reg(theta, opts=None, threshold='pareto', brute_force=True, delta=1e-
             theta[row, :] *= row_norms[row]
     if char_sizes is not None:  # do this here: char_sizes are indexed by full column set
         char_sizes = np.array(char_sizes)
-        char_sizes /= np.max(char_sizes)
+        # char_sizes /= np.max(char_sizes)
         for term in range(len(char_sizes)):
             theta[:, term] = theta[:, term] / char_sizes[term]  # renormalize by characteristic size
-    if anchor_col is None:  # do this exactly here: when we divide by thetanm later, we work with the normalized columns
+    if anchor_norm is None:
+        # do this exactly here: when we divide by Thetanm later, we work with the normalized columns
         thetanm = np.linalg.norm(theta)
-    else:  # do this here: anchor_col is also indexed by full columns set
-        thetanm = np.linalg.norm(theta[:, anchor_col])
+    else:
+        thetanm = np.linalg.norm(theta[:, anchor_norm])
 
     if subinds is not None:
         if not subinds:  # no inds allowed at all
@@ -50,7 +51,7 @@ def sparse_reg(theta, opts=None, threshold='pareto', brute_force=True, delta=1e-
         theta = np.vstack([theta, m * np.transpose(xi)])  # acts as a constraint - weights should be orthogonal to xi
 
     h, w = theta.shape
-    if anchor_col is None:
+    if anchor_norm is None:
         thetanm /= np.sqrt(w)  # scale norm of Theta by square root of # columns to fix scaling of Theta@xi vs thetanm
     # beta = w/h # aspect ratio
 
@@ -81,7 +82,7 @@ def sparse_reg(theta, opts=None, threshold='pareto', brute_force=True, delta=1e-
             # print(f'nrm[{term}]:', nrm[term])
     if w == 1:  # no regression to run
         # noinspection PyUnboundLocalVariable
-        return None, np.inf, best_term, lambda1
+        return [1], np.inf, best_term, lambda1
 
     smallinds = np.zeros(w)
     margins = np.zeros(w)  # increases in residual per time step

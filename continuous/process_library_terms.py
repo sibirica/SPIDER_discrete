@@ -1,7 +1,8 @@
 from findiff import FinDiff
 from commons.weight import *
 from library import *
-from operator import mul
+from functools import reduce
+from operator import add, mul
 
 
 class IntegrationDomain(object):
@@ -22,7 +23,7 @@ class Weight(object):
         self.k = k
         self.scale = scale
         self.ready = False
-        self.weight_obj = None
+        self.weight_objs = None
         if dxs is None:
             self.dxs = [1] * len(self.m)
         else:
@@ -358,8 +359,9 @@ def get_char_size(term, scale_dict, dx, dt):
             product *= scale_dict[name]['std']
         else:
             product *= scale_dict[name]['mean']
-        product *= dx ** xorder
-        product *= dt ** torder
+        # scale by grid spacings for derivatives (should already be accounted for by findiff)
+        # product /= dx**xorder
+        # product /= dt**torder
     return product if product > 0 else 1  # if the variable is always 0 then we'll get division by zero
 
 
