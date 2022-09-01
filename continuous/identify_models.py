@@ -24,10 +24,12 @@ def identify_equations(Q, reg_opts, library, observables, threshold=1e-5, min_co
     if multipliers is None:
         obs_terms = set([obs_to_term(obs) for obs in observables])
         multipliers = set(get_multipliers(obs_terms, lib_max_complexity))
-    for complexity in range(min_complexity, max_complexity + 1):
-        while len(equations) < max_equations:
-            selection = [(term, i) for (i, term) in enumerate(library) if term.complexity <= complexity
-                         and term not in excluded_terms]
+    for complexity in range(min_complexity, max_complexity+1):
+        while len(equations)<max_equations:
+            selection = [(term, i) for (i, term) in enumerate(library) if term.complexity<=complexity
+                        and term not in excluded_terms]
+            if len(selection)==0: # no valid terms of this complexity
+                break
             sublibrary = [s[0] for s in selection]
             inds = [s[1] for s in selection]
             reg_opts['subinds'] = inds
