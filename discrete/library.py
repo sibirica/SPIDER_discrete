@@ -638,19 +638,19 @@ def generate_terms_to(order, observables=None, max_observables=999):
             # print("\n\n\n")
             # print("Partition:", part)
             for tensor in raw_library_tensors(observables, list(part)):
-                if tensor.complexity<=order: # this may not be true since we set complexity of rho[1]>1
-                    #print("Tensor", tensor)
-                    #print("List of labels", list_labels(tensor))
+                if tensor.complexity <= order:  # this may not be true since we set complexity of rho[1]>1
+                    # print("Tensor", tensor)
+                    # print("List of labels", list_labels(tensor))
                     for label in list_labels(tensor):
-                        #print("Label", label)
+                        # print("Label", label)
                         index_list = labels_to_index_list(label, len(tensor.obs_list))
-                        #print("Index list", index_list)
+                        # print("Index list", index_list)
                         for lt in get_library_terms(tensor, index_list):
-                            #print("LT", lt)
+                            # print("LT", lt)
                             # note: not sure where to put this check
                             canon = lt.canonicalize()
                             if lt.is_canonical:
-                                #print("is canonical")
+                                # print("is canonical")
                                 libterms.append(lt)
     return libterms
 

@@ -26,7 +26,7 @@ def sparse_reg(theta, opts=None, threshold='pareto', brute_force=True, delta=1e-
         char_sizes = np.array(char_sizes)
         # char_sizes /= np.max(char_sizes)
         for term in range(len(char_sizes)):
-            theta[:, term] = theta[:, term] / char_sizes[term] # renormalize by characteristic size
+            theta[:, term] = theta[:, term] / char_sizes[term]  # renormalize by characteristic size
     # do this exactly here: when we divide by Thetanm later, we work with the normalized columns
     if anchor_norm is None:
         thetanm = np.linalg.norm(theta)
@@ -34,7 +34,7 @@ def sparse_reg(theta, opts=None, threshold='pareto', brute_force=True, delta=1e-
         thetanm = anchor_norm
     if verbose:
         print('Thetanm:', thetanm)
-    
+
     if subinds is not None:
         if not subinds:  # no inds allowed at all
             return None, np.inf, None, np.inf
@@ -48,12 +48,12 @@ def sparse_reg(theta, opts=None, threshold='pareto', brute_force=True, delta=1e-
     m = 100 * theta.shape[0]
     for xi in avoid:
         theta = np.vstack([theta, m * np.transpose(xi)])  # Acts as a constraint - weights should be orthogonal to Xi
-    
+
     h, w = theta.shape
     if anchor_norm is None:
         thetanm /= np.sqrt(w)  # scale norm of Theta by square root of # columns to fix scaling of Theta@Xi vs Thetanm
     beta = w / h  # aspect ratio
-    
+
     if valid_single is None:
         valid_single = np.ones(shape=(w, 1))
 
@@ -166,7 +166,7 @@ def sparse_reg(theta, opts=None, threshold='pareto', brute_force=True, delta=1e-
                 xi = xi_old
                 print("xi:", xi)
                 break
-    xis[w-1] = xi
+    xis[w - 1] = xi
     if threshold == "pareto":
         y_mar, i_mar = max(margins), np.argmax(margins)
         if n_terms > 1:

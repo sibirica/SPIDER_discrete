@@ -52,7 +52,7 @@ class Weight(object):
         self.k = k
         self.scale = scale
         self.ready = False
-        self.weight_obj = None
+        self.weight_objs = None
         if dxs is None:
             self.dxs = [1] * len(self.m)
         else:
@@ -96,19 +96,27 @@ def lists_for_N(nloops, loop_max):
 
 class SRDataset(object):  # structures all data associated with a given sparse regression dataset
     def __init__(self, world_size, data_dict, particle_pos, observables, kernel_sigma, cg_res, deltat, cutoff=8):
-        self.world_size = world_size # linear dimensions of dataset
-        self.n_dimensions = len(world_size) # number of dimensions (spatial + temporal)
-        self.data_dict = data_dict # observable -> array of values (particle, spatial index, time)
-        self.cg_dict = dict() # storage of computed coarse-grained quantities
-        self.cgps = [] # list of coarse-grained primitives involved
-        self.particle_pos = particle_pos # array of particle positions (particle, spatial index, time)
-        self.observables = observables # list of observables
-        self.kernel_sigma = kernel_sigma # standard deviation of kernel in physical units (scalar for now)
-        self.cg_res = cg_res # subsampling factor when computing coarse-graining, i.e. cg_res points per unit length; should generally just be an integer
-        self.scaled_sigma = kernel_sigma*cg_res
-        self.scaled_pts = particle_pos*cg_res
-        self.dxs = [1/cg_res]*(self.n_dimensions-1)+[deltat] # spacings of sampling grid
-        # note that self.dxs is used over self.weight_dxs in ALL applications except differentiating weight function (in which case weight_dxs corresponds to the rescaling as the result of the change of variables)
+        self.weight_dxs = None
+        self.weights = None
+        self.domain_size = None
+        self.domains = None
+        self.libs = None
+        self.world_size = world_size  # linear dimensions of dataset
+        self.n_dimensions = len(world_size)  # number of dimensions (spatial + temporal)
+        self.data_dict = data_dict  # observable -> array of values (particle, spatial index, time)
+        self.cg_dict = dict()  # storage of computed coarse-grained quantities
+        self.cgps = []  # list of coarse-grained primitives involved
+        self.particle_pos = particle_pos  # array of particle positions (particle, spatial index, time)
+        self.observables = observables  # list of observables
+        self.kernel_sigma = kernel_sigma  # standard deviation of kernel in physical units (scalar for now)
+        # subsampling factor when computing coarse-graining, i.e. cg_res points per unit length; should generally just
+        # be an integer
+        self.cg_res = cg_res
+        self.scaled_sigma = kernel_sigma * cg_res
+        self.scaled_pts = particle_pos * cg_res
+        self.dxs = [1 / cg_res] * (self.n_dimensions - 1) + [deltat]  # spacings of sampling grid
+        # note that self.dxs is used over self.weight_dxs in ALL applications except differentiating weight function
+        # (in which case weight_dxs corresponds to the rescaling as the result of the change of variables)
         self.domain_neighbors = None
         self.cutoff = cutoff  # how many std deviations to cut off gaussians at
         self.scale_dict = None  # dict of characteristic scales of observables -> (mean, std)
@@ -179,7 +187,7 @@ class SRDataset(object):  # structures all data associated with a given sparse r
                     if debug:
                         print(f"CGP {cgp} is new")
                     self.cgps.append(cgp)
-            if sum(dorders)!=0:
+            if sum(dorders) != 0:
                 product *= diff(data_slice, dorders, self.dxs)
             else:
                 product *= data_slice
@@ -314,7 +322,7 @@ class SRDataset(object):  # structures all data associated with a given sparse r
             self.libs[rank].col_weights = [self.get_char_size(term) for term in self.libs[rank].terms]
             # if rank==0: # then we can also compute the row weights
         self.find_row_weights()
-        
+
     def find_scales(self, names=None):
         # find mean/std deviation of fields in data_dict that are in names
         self.scale_dict = dict()
@@ -350,8 +358,8 @@ class SRDataset(object):  # structures all data associated with a given sparse r
             # add in rho contribution (every primitive contains a rho)
             product *= self.scale_dict['rho'][statistic]
             # scale by grid spacings for derivatives (should already be accounted for by findiff)
-            #product /= self.dxs[0]**xorder
-            #product /= self.dxs[-1]**torder
+            # product /= self.dxs[0]**xorder
+            # product /= self.dxs[-1]**torder
         return product
 
     def find_row_weights(self):
