@@ -2,7 +2,7 @@
 from timeit import default_timer as timer
 
 from library import *
-from sparse_reg import *
+from commons.sparse_reg import *
 
 
 # does not properly identify all implications since generation via dx is incomplete from an indexing perspective
@@ -37,6 +37,9 @@ def identify_equations(Q, reg_opts, library, threshold=1e-5, min_complexity=1,
             reg_opts['subinds'] = inds
             # identify model
             eq, res = make_equation_from_Xi(*sparse_reg(Q, **reg_opts), sublibrary)
+            if 'verbose' in reg_opts.keys() and reg_opts['verbose']:
+                print("Checking library:", sublibrary)
+                print('Result:', eq, '. residual:', res)
             if res > threshold:
                 break
             equations.append(eq)

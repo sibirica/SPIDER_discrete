@@ -23,3 +23,4 @@ pip-delete-this-directory.txt
 continuous/NSE2D
 /testscript.py
 /carlos_tests/
+*.txt

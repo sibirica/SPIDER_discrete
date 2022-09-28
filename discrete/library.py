@@ -619,7 +619,7 @@ rho = Observable('rho', 0)
 v = Observable('v', 1)
 
 
-def generate_terms_to(order, observables=None, max_observables=999):
+def generate_terms_to(order, observables=None, max_observables=999, max_rho=999):
     # note: this ignores the fact that rho operator adds complexity, but you can filter by complexity later
     if observables is None:
         observables = [rho, v]
@@ -631,7 +631,7 @@ def generate_terms_to(order, observables=None, max_observables=999):
     partitions = partition(n, k + 3)  # k observables + rho + 2 derivative dimensions
     # not a valid term if no observables or max exceeded
     for part in partitions:
-        if part[k] > 0 and sum(part[:k]) <= max_observables:  # popped a rho, did not exceed max observables
+        if part[k] > 0 and sum(part[:k]) <= max_observables and part[k] <= max_rho:  # popped a rho, did not exceed max observables
             # nt, nx = part[-2:]
             # obs_orders = part[:-2]
             # for tensor in raw_library_tensors(observables, obs_orders, nt, nx):

@@ -1,6 +1,6 @@
 from timeit import default_timer as timer
 from library import *
-from sparse_reg import *
+from commons.sparse_reg import *
 
 
 def identify_equations(Q, reg_opts, library, observables, threshold=1e-5, min_complexity=1,
