@@ -121,10 +121,10 @@ class SRDataset(object):  # structures all data associated with a given sparse r
         self.cutoff = cutoff  # how many std deviations to cut off gaussians at
         self.scale_dict = None  # dict of characteristic scales of observables -> (mean, std)
 
-    def make_libraries(self, max_complexity=4, max_observables=3):
+    def make_libraries(self, max_complexity=4, max_observables=3, max_rho=999):
         self.libs = dict()
         terms = generate_terms_to(max_complexity, observables=self.observables,
-                                  max_observables=max_observables)
+                                  max_observables=max_observables, max_rho=max_rho)
         for rank in (0, 1):
             self.libs[rank] = LibraryData([term for term in terms if term.rank == rank], rank)
 
