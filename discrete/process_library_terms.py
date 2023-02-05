@@ -6,6 +6,8 @@ from findiff import FinDiff
 from commons.weight import *
 from convolution import *
 from library import *
+from scipy.stats import gaussian_kde
+from scipy.stats._stats import gaussian_kernel_estimate
 
 
 # if we want to use integration domains with different sizes & spacings, it might be
@@ -196,44 +198,69 @@ class SRDataset(object):  # structures all data associated with a given sparse r
         product *= weight_arr
         return product
 
-    def eval_cgp(self, cgp, obs_dims, domain):
+    def eval_cgp(self, cgp, obs_dims, domain, experimental=True):
         data_slice = np.zeros(domain.shape)
         if self.domain_neighbors is None:
             self.find_domain_neighbors()
         for t in range(domain.shape[-1]):
             time_slice = np.zeros(domain.shape[:-1])
             t_shifted = t + domain.min_corner[-1]
-            for i in self.domain_neighbors[domain, t_shifted]:
-                pt_pos = self.scaled_pts[i, :, t_shifted]
-                # evaluate observables inside rho[...]
-                coeff = 1
+            if experimental:
+                # experimental method using scipy.stats.gaussian_kde
+                particles = self.domain_neighbors[domain, t_shifted]
+                pt_pos = self.scaled_pts[particles, :, t_shifted]/self.cg_res
+                weights = np.ones_like(particles, dtype=np.float)
                 obs_dim_ind = 0
                 for obs in cgp.obs_list:
-                    # print(obs, i, obs_dims[obs_dim_ind], t_shifted)
                     if obs.rank == 0:
-                        coeff *= self.data_dict[obs.string][i, 0, t_shifted]
+                        data = self.data_dict[obs.string][particles, 0, t_shifted]
                     else:
-                        coeff *= self.data_dict[obs.string][i, obs_dims[obs_dim_ind], t_shifted]
+                        data = self.data_dict[obs.string][particles, obs_dims[obs_dim_ind], t_shifted]
+                    weights *= data.astype(np.float)
                     obs_dim_ind += obs.rank
-                    # print(coeff)
-                # coarse-graining this particle (one dimension at a time)
-                rngs = []
-                g_nd = 1
-                for coord, d_min, d_max, j in zip(pt_pos, domain.min_corner, domain.max_corner,
-                                                  range(self.n_dimensions - 1)):
-                    # recenter so that 0 is start of domain
-                    g, mn, mx = gauss1d(coord - d_min, self.scaled_sigma, truncate=self.cutoff,
-                                        xmin=0, xmax=d_max - d_min)
-                    g_nd = np.multiply.outer(g_nd, g)
-                    rng_array = np.array(range(mn, mx))  # coordinate range of kernel
-                    # now need to add free axes so that the index ends up as an (n-1)-d array
-                    n_free_dims = self.n_dimensions - j - 2  # how many np.newaxis to add to index
-                    expanded_rng_array = np.expand_dims(rng_array, axis=tuple(range(1, 1 + n_free_dims)))
-                    rngs.append(expanded_rng_array)
-                # if len((g_nd*coeff).shape) > len(time_slice.shape):
-                #    print(rngs, g_nd.shape, coeff)
-                time_slice[tuple(rngs)] += g_nd * coeff
-            data_slice[..., t] = time_slice
+                sigma = self.scaled_sigma**2 / (self.cg_res**2)
+                inv_cov = np.eye(2) / sigma
+                min_corner = domain.min_corner[:-1]
+                max_corner = domain.max_corner[:-1]
+                xx, yy = np.mgrid[min_corner[0]:(max_corner[0] + 1), min_corner[1]:(max_corner[1] + 1)]
+                positions = np.vstack([(xx / self.cg_res).ravel(), (yy / self.cg_res).ravel()]).T
+                density = gaussian_kernel_estimate['double'](pt_pos, weights[:, None], positions, inv_cov,
+                                                             np.float)
+                time_slice = np.reshape(density[:, 0], xx.shape)
+
+                data_slice[..., t] = time_slice/(self.cg_res**2)
+            else:
+                for i in self.domain_neighbors[domain, t_shifted]:
+                    pt_pos = self.scaled_pts[i, :, t_shifted]
+                    # evaluate observables inside rho[...]
+                    coeff = 1
+                    obs_dim_ind = 0
+                    for obs in cgp.obs_list:
+                        # print(obs, i, obs_dims[obs_dim_ind], t_shifted)
+                        if obs.rank == 0:
+                            coeff *= self.data_dict[obs.string][i, 0, t_shifted]
+                        else:
+                            coeff *= self.data_dict[obs.string][i, obs_dims[obs_dim_ind], t_shifted]
+                        obs_dim_ind += obs.rank
+                        # print(coeff)
+                    # coarse-graining this particle (one dimension at a time)
+                    rngs = []
+                    g_nd = 1
+                    for coord, d_min, d_max, j in zip(pt_pos, domain.min_corner, domain.max_corner,
+                                                      range(self.n_dimensions - 1)):
+                        # recenter so that 0 is start of domain
+                        g, mn, mx = gauss1d(coord - d_min, self.scaled_sigma, truncate=self.cutoff,
+                                            xmin=0, xmax=d_max - d_min)
+                        g_nd = np.multiply.outer(g_nd, g)
+                        rng_array = np.array(range(mn, mx))  # coordinate range of kernel
+                        # now need to add free axes so that the index ends up as an (n-1)-d array
+                        n_free_dims = self.n_dimensions - j - 2  # how many np.newaxis to add to index
+                        expanded_rng_array = np.expand_dims(rng_array, axis=tuple(range(1, 1 + n_free_dims)))
+                        rngs.append(expanded_rng_array)
+                    # if len((g_nd*coeff).shape) > len(time_slice.shape):
+                    #    print(rngs, g_nd.shape, coeff)
+                    time_slice[tuple(rngs)] += g_nd * coeff
+                data_slice[..., t] = time_slice
         data_slice *= self.cg_res ** (self.n_dimensions - 1)  # need to scale rho by res^(# spatial dims)!
         return data_slice
 
