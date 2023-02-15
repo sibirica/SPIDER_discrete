@@ -66,7 +66,7 @@ def dump_to_traj(in_file, out_file, num_dimensions, timestep, L=1, vel_file=None
     offset = np.min(trajs)
     trajs -= offset
     dims[0] = np.max(trajs)
-    dims.append(len(traj_list))  # last dim is number of time steps
+    dims.append(len(traj_list)) # last dim is number of time steps
     if vel_file is None:
         # compute velocities by finite differencing
         traj_diff = FinDiff((num_dimensions, dt, 1), acc=4)
@@ -85,8 +85,8 @@ def dump_to_traj(in_file, out_file, num_dimensions, timestep, L=1, vel_file=None
                     datafields = list(map(float, line.split()))  # split into [atom, vx, vy, (vz)]
                     atom = int(datafields[0]) - 1
                     v = np.array(datafields[1:1 + num_dimensions])
-                    v_slice[atom, :] = v / L
-        vs = np.dstack(v_list) / 2  # for some reason the computed velocities are off by a factor of 2
+                    v_slice[atom, :] = v
+        vs = np.dstack(v_list) / (2*L) # everything is off by length scale rescaling (2*?)L
     # save trajectories, velocities, & dt to out_file
     with open(out_file, 'wb') as f_out:
         np.save(f_out, trajs, allow_pickle=True)

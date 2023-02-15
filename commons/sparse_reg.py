@@ -1,8 +1,13 @@
 import numpy as np
+import os
+import sys
+import subprocess
+from timeit import default_timer as timer
 
-def sparse_reg(theta, opts=None, threshold='pareto', brute_force=True, delta=1e-10, epsilon=1e-2, gamma=2,
+# NOTE: some combinations of "threshold" and "use_discrete" don't work, which is not worth worrying about
+def sparse_reg(theta, opts=None, threshold='AIC', brute_force=True, delta=1e-10, epsilon=1e-2, gamma=2,
                verbose=False, n_terms=-1, char_sizes=None, row_norms=None, valid_single=None, avoid=None, subinds=None,
-               anchor_norm=None):
+               anchor_norm=None, use_discrete=False, max_k=10):
     # compute sparse regression on Theta * xi = 0
     # Theta: matrix of integrated terms
     # char_sizes: vector of characteristic term sizes (per column)
@@ -63,10 +68,9 @@ def sparse_reg(theta, opts=None, threshold='pareto', brute_force=True, delta=1e-
     if verbose:
         # print("sigma:", sigma)
         # Sigmas = sigma[sigma[:]>0]
-        sigma_shrink = [opt_shrinker(s, beta) for s in sigma]
-        # print("sigma_shrink:", sigma_shrink)
         #print("v:", v)
         #print("scores:", np.log(sigma))  # np.log(Sigmas)/np.min(Sigmas)
+        pass
     lambd = np.linalg.norm(theta @ xi) / thetanm
     if verbose:
         print('lambda:', lambd)
@@ -80,94 +84,144 @@ def sparse_reg(theta, opts=None, threshold='pareto', brute_force=True, delta=1e-
     if w == 1:  # no regression to run
         # noinspection PyUnboundLocalVariable
         return [1], np.inf, best_term, lambda1
-
-    smallinds = np.zeros(w)
-    margins = np.zeros(w)  # increases in residual per time step
-    lambdas = np.zeros(w)
-    lambdas[0] = lambd
-    xis = np.zeros(shape=(w, w))  # record coefficients
-    flag = False
-    for i in range(w - 1):
-        xis[i] = xi
-        if brute_force:
-            # product of the coefficient and characteristic size of library function
-            res_inc = np.ones(shape=(w, 1)) * np.inf
-        product = np.zeros(shape=(w, 1))
-        for p_ind in range(w):
+    
+    if use_discrete: 
+        # BUGS: COEFFICIENTS AREN'T ALWAYS IN THE CORRECT ORDER (hopefully fixed) 
+        # Additionally if Sigma entries are too large Mosek can crash (hopefuly fixed)
+        # and imports are very slow (batching helps)
+        max_k = min(max_k, w) # max_k can't be bigger than w
+        xis = np.zeros(shape=(max_k, w))
+        lambdas = np.zeros(max_k)
+        sigma = -theta.T @ theta
+        #print(theta.shape, sigma.shape)
+        save_loc = 'temp/sigma.csv'
+        if not os.path.exists('temp'): # make temp directory if it does not exist yet
+            os.makedirs('temp')
+        with open(save_loc, 'w') as save_file:
+             np.savetxt(save_file, sigma, delimiter=",")
+        batch = True
+        if batch: # run all k's together to reduce amount of time Julia wastes on imports
+            load_template = 'temp/output_@.csv'
+            xis, ubs, lbs = batch_discrete_sr(max_k, save_loc, load_template)
+            for i in range(max_k):
+                k = max_k - i
+                xi = xis[i]
+                if verbose:
+                    print("k:", k, "xi:", xi, "dual bound:", ubs[i], "primal bound:", lbs[i])
+                lambdas[i] = np.linalg.norm(theta @ xi) / thetanm
+        else: 
+            for i in range(max_k):
+                k = max_k - i
+                load_loc = f'temp/output_{k}.csv'
+                xi, ub, lb = discrete_sr(k, save_loc, load_loc)
+                if verbose:
+                    print("k:", k, "xi:", xi, "dual bound:", ub, "primal bound:", lb)
+                xis[i] = xi
+                lambdas[i] = np.linalg.norm(theta @ xi) / thetanm
+    else:
+        xis = np.zeros(shape=(w, w))  # record coefficients
+        smallinds = np.zeros(w)
+        margins = np.zeros(w)  # increases in residual per time step
+        lambdas = np.zeros(w)
+        lambdas[0] = lambd
+        flag = False
+        for i in range(w - 1):
+            xis[i] = xi
             if brute_force:
-                if smallinds[p_ind] == 0:
-                    # Try dropping each term
-                    smallinds_copy = np.copy(smallinds)
-                    smallinds_copy[p_ind] = 1
-                    xi_copy = np.copy(xi)
-                    xi_copy[p_ind] = 0
-                    _, _, v = np.linalg.svd(theta[:, smallinds_copy == 0], full_matrices=True)
+                # product of the coefficient and characteristic size of library function
+                res_inc = np.ones(shape=(w, 1)) * np.inf
+            product = np.zeros(shape=(w, 1))
+            for p_ind in range(w):
+                if brute_force:
+                    if smallinds[p_ind] == 0:
+                        # Try dropping each term
+                        smallinds_copy = np.copy(smallinds)
+                        smallinds_copy[p_ind] = 1
+                        xi_copy = np.copy(xi)
+                        xi_copy[p_ind] = 0
+                        _, _, v = np.linalg.svd(theta[:, smallinds_copy == 0], full_matrices=True)
+                        v = v.transpose()
+                        xi_copy[smallinds_copy == 0] = v[:, -1]
+                        # noinspection PyUnboundLocalVariable
+                        res_inc[p_ind] = np.linalg.norm(theta @ xi_copy) / thetanm / lambd
+                else:
+                    col = theta[:, p_ind]
+                    # project out other columns
+                    for q_ind in range(w):
+                        if (p_ind != q_ind) and smallinds[q_ind] == 0:
+                            other_col = theta[:, q_ind]
+                            col = col - np.dot(col, other_col) / np.linalg.norm(other_col) ** 2 * other_col
+                    # product[p_ind] = np.linalg.norm(xi[p_ind]*col)/np.linalg.norm(Theta)
+                    product[p_ind] = np.linalg.norm(xi[p_ind] * col)
+            if brute_force:
+                y, ii = min(res_inc), np.argmin(res_inc)
+                if verbose:
+                    print("y:", y, "ii:", ii)
+                margins[i] = y
+                if verbose:
+                    # print('res_inc:', res_inc)
+                    if threshold != "multiplicative":
+                        print("i", i, "lambda", lambd)  # for pareto plot
+                if (y <= gamma) or (threshold != "threshold") or (lambd <= delta):
+                    smallinds[ii] = 1
+                    xi[ii] = 0
+                    _, _, v = np.linalg.svd(theta[:, smallinds == 0], full_matrices=True)
                     v = v.transpose()
-                    xi_copy[smallinds_copy == 0] = v[:, -1]
-                    # noinspection PyUnboundLocalVariable
-                    res_inc[p_ind] = np.linalg.norm(theta @ xi_copy) / thetanm / lambd
+                    xi[smallinds == 0] = v[:, -1]
+                    lambd = np.linalg.norm(theta @ xi) / thetanm
+                    lambdas[i + 1] = lambd
+                    if sum(smallinds == 0) == 1:
+                        margins[-1] = np.inf
+                        break
+                else:
+                    if verbose:
+                        print("y:", y, "ii:", ii)
+                    break
             else:
-                col = theta[:, p_ind]
-                # project out other columns
-                for q_ind in range(w):
-                    if (p_ind != q_ind) and smallinds[q_ind] == 0:
-                        other_col = theta[:, q_ind]
-                        col = col - np.dot(col, other_col) / np.linalg.norm(other_col) ** 2 * other_col
-                # product[p_ind] = np.linalg.norm(xi[p_ind]*col)/np.linalg.norm(Theta)
-                product[p_ind] = np.linalg.norm(xi[p_ind] * col)
-        if brute_force:
-            y, ii = min(res_inc), np.argmin(res_inc)
-            if verbose:
-                print("y:", y, "ii:", ii)
-            margins[i] = y
-            if verbose:
-                # print('res_inc:', res_inc)
-                if threshold != "multiplicative":
-                    print("i", i, "lambda", lambd)  # for pareto plot
-            if (y <= gamma) or (threshold != "threshold") or (lambd <= delta):
+                product[smallinds == 1] = np.inf
+                y, ii = min(product), np.argmin(product)
+                if verbose:
+                    print("y:", y, "ii:", ii)
                 smallinds[ii] = 1
-                xi[ii] = 0
+                if sum(smallinds == 0) == 1:
+                    break
+                # if verbose:
+                # print("prod:", product.transpose())
+                xi_old = xi
+                xi[smallinds == 1] = 0  # set negligible terms to 0
                 _, _, v = np.linalg.svd(theta[:, smallinds == 0], full_matrices=True)
                 v = v.transpose()
                 xi[smallinds == 0] = v[:, -1]
+                lambda_old = lambd
                 lambd = np.linalg.norm(theta @ xi) / thetanm
                 lambdas[i + 1] = lambd
-                if sum(smallinds == 0) == 1:
-                    margins[-1] = np.inf
-                    break
-            else:
+                margin = lambd / lambda_old
                 if verbose:
-                    print("y:", y, "ii:", ii)
-                break
-        else:
-            product[smallinds == 1] = np.inf
-            y, ii = min(product), np.argmin(product)
-            if verbose:
-                print("y:", y, "ii:", ii)
-            smallinds[ii] = 1
-            if sum(smallinds == 0) == 1:
-                break
-            # if verbose:
-            # print("prod:", product.transpose())
-            xi_old = xi
-            xi[smallinds == 1] = 0  # set negligible terms to 0
-            _, _, v = np.linalg.svd(theta[:, smallinds == 0], full_matrices=True)
-            v = v.transpose()
-            xi[smallinds == 0] = v[:, -1]
-            lambda_old = lambd
-            lambd = np.linalg.norm(theta @ xi) / thetanm
-            lambdas[i + 1] = lambd
-            margin = lambd / lambda_old
-            if verbose:
-                print("lambda:", lambd, " margin:", margin)
-            margins[i] = margin
-            if (margin > gamma) and (lambd > delta) and (threshold == "threshold"):
-                print("ii:", ii)
-                xi = xi_old
-                print("xi:", xi)
-                break
-    xis[w - 1] = xi
-    if threshold == "pareto":
+                    print("lambda:", lambd, " margin:", margin)
+                margins[i] = margin
+                if (margin > gamma) and (lambd > delta) and (threshold == "threshold"):
+                    print("ii:", ii)
+                    xi = xi_old
+                    print("xi:", xi)
+                    break
+    xis[-1] = xi
+    if threshold == "AIC":
+        aics = [AIC(lambd, max_k - i, h) for i, lambd in enumerate(lambdas)]
+        opt_i = np.argmin(aics)
+        if verbose:
+            print('AICS:', aics)
+            print('optimal i', opt_i)
+        xi = xis[opt_i]
+        lambd = lambdas[opt_i]
+    elif threshold == "BIC":
+        bics = [BIC(lambd, max_k - i, h) for i, lambd in enumerate(lambdas)]
+        opt_i = np.argmin(bics)
+        if verbose:
+            print('BICS:', bics)
+            print('optimal i', opt_i)
+        xi = xis[opt_i]
+        lambd = lambdas[opt_i]
+    elif threshold == "pareto":
         y_mar, i_mar = max(margins), np.argmax(margins)
         if n_terms > 1:
             i_mar = sum(margins > 0) - n_terms
@@ -182,7 +236,7 @@ def sparse_reg(theta, opts=None, threshold='pareto', brute_force=True, delta=1e-
         i_sm = np.argmax((lambdas > epsilon * lambda1) & (lambdas > delta)) - 1
         xi = xis[i_sm]  # stopping_point
         lambd = np.linalg.norm(theta @ xi) / thetanm
-    else:
+    else: #if threshold == 'threshold'
         if n_terms > 1:  # Don't think this line does anything functionally but ii also don't really use this
             i_mar = sum(margins > 0) - n_terms
         lambdas[0] = lambdas[1]  # FIXME DUCT TAPE since ii don't know what's going on (basically first lambda is big)
@@ -223,37 +277,115 @@ def sparse_reg(theta, opts=None, threshold='pareto', brute_force=True, delta=1e-
     # noinspection PyUnboundLocalVariable
     return xi, lambd, best_term, lambda1
 
-
-def opt_shrinker(y, beta):
-    if y <= 1 + np.sqrt(beta):
-        return 0
-    else:
-        return np.sqrt((y * y - beta - 1) ** 2 - 4 * beta) / y
-
-
 def regress(Theta, col_numbers):  # regression on a fixed set of terms
     h, w = Theta.shape
     # thetanm = np.linalg.norm(Theta)
     col_norms = np.linalg.norm(Theta, axis=0)
-    print(h, w, col_norms.shape)
+    #print(h, w, col_norms.shape)
+    Theta_copy = Theta.copy()
     for term in range(col_norms.shape[0]):
-            Theta[:, term] = Theta[:, term] / col_norms[term]
+            Theta_copy[:, term] = Theta_copy[:, term] / col_norms[term]
     # fix scaling w/ respect to number of columns
     #thetanm /= np.sqrt(w)
     smallinds = np.ones(shape=(w,))
     xi = np.zeros(shape=(w,))
     smallinds[np.array(col_numbers)] = 0
-    _, _, v = np.linalg.svd(Theta[:, smallinds == 0], full_matrices=True)
+    _, _, v = np.linalg.svd(Theta_copy[:, smallinds == 0], full_matrices=True)
     v = v.transpose()
     xi[smallinds == 0] = v[:, -1]
-    lambd = np.linalg.norm(Theta @ xi)
     
     xi = xi / col_norms
     if -min(xi) > max(xi):  # ensure vectors are "positive"
         xi = -xi
     xi = xi / max(xi)  # make largest coeff 1
+    lambd = np.linalg.norm(Theta @ xi)
+
     # make residuals relative to original norm(Theta)*norm(xi)
     #nm = np.linalg.norm(xi)
     # lambd /= (nm*thetanm)
     #lambd /= thetanm
     return xi, lambd
+
+# taken with minor modifications from Bertsekas paper code
+def AIC(lambd, k, m, add_correction=True):
+    rss = lambd ** 2
+    aic = 2 * k + m * np.log(rss / m)
+    if add_correction:
+        correction_term = (2 * (k + 1) * (k + 2)) / max(m - k - 2, 1)  # In case k == m
+        aic += correction_term
+    return aic
+
+def BIC(lambd, k, m):
+    rss = lambd ** 2
+    bic = np.log(m) * k + m * np.log(rss / m)
+    return bic
+
+# call Julia to compute Xi
+def discrete_sr(k, save_loc, load_loc):
+    # run Julia script via interface
+    #os.system(f'julia interface.jl {k} {save_loc} {load_loc}')
+    #try:
+    #    subprocess.check_call(f'julia interface.jl {k} "{save_loc}" "{load_loc}"')
+    #except subprocess.CalledProcessError as e:
+    #    print(e.output)
+    ### apparently Popen.communicate is a more standard way to pipe io than saving to file
+    #with open('julia_path.config', 'r') as fj: # format: absolute path of interface.jl in quotes
+    #    path = fj.readline()
+    start = timer()
+    path = '"../Julia/ScalableSPCA.jl/interface.jl"'
+    _run_command(f'julia -q -J../Julia/Sysimage.so {path} {k} "{save_loc}" "{load_loc}"') # see below
+
+    # load csv from load_loc
+    with open(load_loc, 'r') as f:
+        line1 = f.readline()
+        ublb = line1.split(',')
+        ub = float(ublb[0])
+        lb = float(ublb[1])
+        line2 = f.readline()
+        xi_split = [float(string.replace("\n", "").strip()) for string in line2.split(',')]
+        xi = np.array(xi_split)
+        
+    time = timer() - start
+    print(f"[ran in {time:.2f} s]")
+    return xi, ub, lb
+
+def batch_discrete_sr(max_k, save_loc, load_template):
+    start = timer()
+    path = '"../Julia/ScalableSPCA.jl/batch_interface.jl"'
+    _run_command(f'julia -q -J../Julia/Sysimage.so {path} {max_k} "{save_loc}" "{load_template}"') # see below
+
+    xis = []
+    ubs = []
+    lbs = []
+    for i in range(max_k):
+        k = max_k-i
+        load_loc = load_template.replace("@", str(k))
+        # load csv from load_loc
+        with open(load_loc, 'r') as f:
+            line1 = f.readline()
+            ublb = line1.split(',')
+            ub = float(ublb[0])
+            lb = float(ublb[1])
+            line2 = f.readline()
+            xi_split = [float(string.replace("\n", "").strip()) for string in line2.split(',')]
+            xi = np.array(xi_split)
+        xis.append(xi)
+        ubs.append(ub)
+        lbs.append(lb)
+        
+    time = timer() - start
+    print(f"[ran in {time:.2f} s]")
+    return xis, ubs, lbs
+
+def _run_command(command):
+    print("Running command: {}".format(command))
+    with open("error_log.txt", "w") as f:
+        try:
+            subprocess.check_call(command, stderr=f)
+            df = subprocess.Popen(command, stdout=subprocess.PIPE)
+            output, err = df.communicate()
+        except subprocess.CalledProcessError as e:
+            print("===================")
+            print(e.stderr)
+            print("===================")
+            raise e       

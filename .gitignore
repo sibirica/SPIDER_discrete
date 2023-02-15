@@ -16,11 +16,16 @@ pip-delete-this-directory.txt
 .spyderproject
 .spyproject
 
+# data files
 *.npy
 *.mp4
 *.mat
+*.txt
+*.csv
 /data
 continuous/NSE2D
+
 /testscript.py
 /carlos_tests/
-*.txt
+
+Julia/Sysimage.so

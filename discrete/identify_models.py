@@ -36,9 +36,10 @@ def identify_equations(Q, reg_opts, library, threshold=1e-5, min_complexity=1,
             inds = [s[1] for s in selection]
             reg_opts['subinds'] = inds
             # identify model
-            eq, res = make_equation_from_Xi(*sparse_reg(Q, **reg_opts), sublibrary)
             if 'verbose' in reg_opts.keys() and reg_opts['verbose']:
                 print("Checking library:", sublibrary)
+            eq, res = make_equation_from_Xi(*sparse_reg(Q, **reg_opts), sublibrary)
+            if 'verbose' in reg_opts.keys() and reg_opts['verbose']:
                 print('Result:', eq, '. residual:', res)
             if res > threshold:
                 break
