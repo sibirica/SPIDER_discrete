@@ -9,8 +9,9 @@ sigma = Matrix(df)
 
 for k in max_k:-1:1
       output_loc = replace(out_template, "@" => string(k))
-      UB, LB, xi = getSDPUpperBound_gd(sigma, k, true, false)
-      #UB, LB, xi = getSDPUpperBound_gd_highdim(sigma, k, true, false)
+      # note - probably the other way around now
+      UB, LB, xi = getSDPUpperBound_gd(sigma, k, true, true)
+      #UB, LB, xi = getSDPUpperBound_gd_highdim(sigma, k, true, true)
 
       # save UB, LB, xi to file
       open(output_loc, "w") do io

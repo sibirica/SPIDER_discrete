@@ -92,13 +92,16 @@ def sparse_reg(theta, opts=None, threshold='AIC', brute_force=True, delta=1e-10,
         max_k = min(max_k, w) # max_k can't be bigger than w
         xis = np.zeros(shape=(max_k, w))
         lambdas = np.zeros(max_k)
-        sigma = -theta.T @ theta
+        #sigma_in = -theta.T @ theta
+        #sigma_in = theta.T @ theta
+        sigma_in = np.max(sigma[:])**2*np.eye(w)-theta.T @ theta
+        
         #print(theta.shape, sigma.shape)
         save_loc = 'temp/sigma.csv'
         if not os.path.exists('temp'): # make temp directory if it does not exist yet
             os.makedirs('temp')
         with open(save_loc, 'w') as save_file:
-             np.savetxt(save_file, sigma, delimiter=",")
+             np.savetxt(save_file, sigma_in, delimiter=",")
         batch = True
         if batch: # run all k's together to reduce amount of time Julia wastes on imports
             load_template = 'temp/output_@.csv'
@@ -118,6 +121,7 @@ def sparse_reg(theta, opts=None, threshold='AIC', brute_force=True, delta=1e-10,
                     print("k:", k, "xi:", xi, "dual bound:", ub, "primal bound:", lb)
                 xis[i] = xi
                 lambdas[i] = np.linalg.norm(theta @ xi) / thetanm
+        margins = lambdas[1:]/lambdas[:-1]
     else:
         xis = np.zeros(shape=(w, w))  # record coefficients
         smallinds = np.zeros(w)

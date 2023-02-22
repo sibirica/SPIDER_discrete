@@ -34,8 +34,7 @@ function getSDPUpperBound_gd(Sigma::Array{Float64, 2}, k::Int64, useSOCS::Bool=f
         @constraint(sdp_gd, X.+U.>=0.0)
         @constraint(sdp_gd, perspectiveRelaxation[i=1:n], [z[i]+X[i,i]; 2*X[:,i];z[i]-X[i,i]] in SecondOrderCone())
     end
-
-    @objective(sdp_gd, Max, LinearAlgebra.dot(Sigma, X))
+    @objective(sdp_gd, Min, LinearAlgebra.dot(Sigma, X))
 
     @suppress optimize!(sdp_gd)
 
@@ -48,7 +47,7 @@ function getSDPUpperBound_gd(Sigma::Array{Float64, 2}, k::Int64, useSOCS::Bool=f
     #    ind=1
     #else # eigs function complains if the matrix is too small
     λs,xs=eigen(Sigma_reduced)
-    λ, ind = findmax(real.(λs))
+    λ, ind = findmin(real.(λs))
     #end
 
     debug = false
