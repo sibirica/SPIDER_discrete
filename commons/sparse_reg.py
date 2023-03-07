@@ -3,11 +3,12 @@ import os
 import sys
 import subprocess
 from timeit import default_timer as timer
+from commons.TInvPower import *
 
 # NOTE: some combinations of "threshold" and "use_discrete" don't work, which is not worth worrying about
 def sparse_reg(theta, opts=None, threshold='AIC', brute_force=True, delta=1e-10, epsilon=1e-2, gamma=2,
                verbose=False, n_terms=-1, char_sizes=None, row_norms=None, valid_single=None, avoid=None, subinds=None,
-               anchor_norm=None, use_discrete=False, max_k=10):
+               anchor_norm=None, method="stepwise", max_k=10):
     # compute sparse regression on Theta * xi = 0
     # Theta: matrix of integrated terms
     # char_sizes: vector of characteristic term sizes (per column)
@@ -85,7 +86,7 @@ def sparse_reg(theta, opts=None, threshold='AIC', brute_force=True, delta=1e-10,
         # noinspection PyUnboundLocalVariable
         return [1], np.inf, best_term, lambda1
     
-    if use_discrete: 
+    if method == "discrete": 
         # BUGS: COEFFICIENTS AREN'T ALWAYS IN THE CORRECT ORDER (hopefully fixed) 
         # Additionally if Sigma entries are too large Mosek can crash (hopefuly fixed)
         # and imports are very slow (batching helps)
@@ -122,7 +123,21 @@ def sparse_reg(theta, opts=None, threshold='AIC', brute_force=True, delta=1e-10,
                 xis[i] = xi
                 lambdas[i] = np.linalg.norm(theta @ xi) / thetanm
         margins = lambdas[1:]/lambdas[:-1]
-    else:
+    elif method == "power":
+        xi = None
+        max_k = min(max_k, w) # max_k can't be bigger than w
+        xis = np.zeros(shape=(max_k, w))
+        lambdas = np.zeros(max_k)
+        for i in range(max_k):
+            k = max_k - i
+            sigma_in = theta.T @ theta 
+            xi, mu, it = TInvPower(sigma_in, k, x0=xi, mu0=0, verbose=False)
+            xis[i] = xi
+            lambdas[i] = np.linalg.norm(theta @ xi) / thetanm
+            if verbose:
+                print("k:", k, "xi:", xi, "lambda:", lambdas[i])
+        margins = lambdas[1:]/lambdas[:-1]
+    else: # method == "stepwise"
         xis = np.zeros(shape=(w, w))  # record coefficients
         smallinds = np.zeros(w)
         margins = np.zeros(w)  # increases in residual per time step
@@ -241,13 +256,18 @@ def sparse_reg(theta, opts=None, threshold='AIC', brute_force=True, delta=1e-10,
         xi = xis[i_sm]  # stopping_point
         lambd = np.linalg.norm(theta @ xi) / thetanm
     else: #if threshold == 'threshold'
-        if n_terms > 1:  # Don't think this line does anything functionally but ii also don't really use this
+        if n_terms > 1:  # Don't think this line does anything functionally but I also don't really use this
             i_mar = sum(margins > 0) - n_terms
-        lambdas[0] = lambdas[1]  # FIXME DUCT TAPE since ii don't know what's going on (basically first lambda is big)
-        i_mar = max(np.argmax(lambdas > delta) - 1, np.argmax(margins > gamma))
+        lambdas[0] = lambdas[1]  # FIXME DUCT TAPE since I don't know what's going on (basically first lambda is big)
+        gt_delta = (lambdas > delta)
+        large_margin = (margins > gamma)
+        if not any(gt_delta) or not any(large_margin): # didn't trip the criteria while sparsifying
+            i_mar = -1 # select sparsest term
+        else: # select first term which tripped the criteria
+            i_mar = max(np.argmax(gt_delta) - 1, np.argmax(large_margin))
         if verbose:
             #print(lambdas > delta)
-            #print(margins == 0)
+            #print(margins > gamma)
             print("i_mar:", i_mar)
         xi = xis[i_mar]  # stopping_point
         lambd = np.linalg.norm(theta @ xi) / thetanm
