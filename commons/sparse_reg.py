@@ -5,7 +5,6 @@ import subprocess
 from timeit import default_timer as timer
 from commons.TInvPower import *
 
-# NOTE: some combinations of "threshold" and "use_discrete" don't work, which is not worth worrying about
 def sparse_reg(theta, opts=None, threshold='AIC', brute_force=True, delta=1e-10, epsilon=1e-2, gamma=2,
                verbose=False, n_terms=-1, char_sizes=None, row_norms=None, valid_single=None, avoid=None, subinds=None,
                anchor_norm=None, method="stepwise", max_k=10):

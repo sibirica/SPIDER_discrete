@@ -7,7 +7,7 @@ from commons.weight import *
 from convolution import *
 from library import *
 from scipy.stats import gaussian_kde
-
+from scipy.stats._stats import gaussian_kernel_estimate
 
 # if we want to use integration domains with different sizes & spacings, it might be
 # better to store that information within this object as well
@@ -218,17 +218,16 @@ class SRDataset(object):  # structures all data associated with a given sparse r
                     weights *= data.astype(np.float)
                     obs_dim_ind += obs.rank
                 sigma = self.scaled_sigma**2 / (self.cg_res**2)
-                kde = gaussian_kde(pt_pos.T, weights=np.abs(weights), bw_method=sigma)
-                kde.covariance = np.eye(2) * sigma
-                kde.inv_cov = np.linalg.inv(kde.covariance)
-                kde._weights = weights
-                kde._neff = 1
+                inv_cov = np.eye(2) / sigma
                 min_corner = domain.min_corner[:-1]
                 max_corner = domain.max_corner[:-1]
                 xx, yy = np.mgrid[min_corner[0]:(max_corner[0] + 1), min_corner[1]:(max_corner[1] + 1)]
-                positions = np.vstack([(xx / self.cg_res).ravel(), (yy / self.cg_res).ravel()])
-                time_slice = np.reshape(kde(positions).T, xx.shape)
-                data_slice[..., t] = time_slice
+                positions = np.vstack([(xx / self.cg_res).ravel(), (yy / self.cg_res).ravel()]).T
+                density = gaussian_kernel_estimate['double'](pt_pos, weights[:, None], positions, inv_cov,
+                                                             np.float)
+                time_slice = np.reshape(density[:, 0], xx.shape)
+
+                data_slice[..., t] = time_slice/(self.cg_res**2)
             else:
                 for i in self.domain_neighbors[domain, t_shifted]:
                     pt_pos = self.scaled_pts[i, :, t_shifted]
