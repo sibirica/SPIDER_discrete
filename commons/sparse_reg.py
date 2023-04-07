@@ -302,7 +302,7 @@ def sparse_reg(theta, opts=None, threshold='AIC', brute_force=True, delta=1e-10,
 
 def regress(Theta, col_numbers):  # regression on a fixed set of terms
     h, w = Theta.shape
-    # thetanm = np.linalg.norm(Theta)
+    thetanm = np.linalg.norm(Theta[:, 0])
     col_norms = np.linalg.norm(Theta, axis=0)
     #print(h, w, col_norms.shape)
     Theta_copy = Theta.copy()
@@ -321,7 +321,7 @@ def regress(Theta, col_numbers):  # regression on a fixed set of terms
     if -min(xi) > max(xi):  # ensure vectors are "positive"
         xi = -xi
     xi = xi / max(xi)  # make largest coeff 1
-    lambd = np.linalg.norm(Theta @ xi)
+    lambd = np.linalg.norm(Theta @ xi)/thetanm
 
     # make residuals relative to original norm(Theta)*norm(xi)
     #nm = np.linalg.norm(xi)
