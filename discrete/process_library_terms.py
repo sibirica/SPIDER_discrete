@@ -133,14 +133,14 @@ class SRDataset(object):  # structures all data associated with a given sparse r
         self.domains = []
         scaled_dims = [int(s * self.cg_res) for s in domain_size[:-1]] + [domain_size[-1]]
         scaled_world_size = [int(s * self.cg_res) for s in self.world_size[:-1]] + [self.world_size[-1]]
-        # scaled_pad = np.ceil(pad*self.cg_res)
+        pads = [np.ceil(pad*self.cg_res) for s in domain_size[:-1]] + [0] # padding by pad in original units on spatial dims
         self.domain_size = scaled_dims
         for i in range(ndomains):
             min_corner = []
             max_corner = []
             # define domains on the *scaled* grid
-            for (L, max_lim) in zip(scaled_dims, scaled_world_size):
-                num = np.random.randint(pad, max_lim - (L + pad) + 1)
+            for (L, max_lim, pad_i) in zip(scaled_dims, scaled_world_size, pads):
+                num = np.random.randint(pad_i, max_lim - (L + pad_i) + 1)
                 min_corner.append(num)
                 max_corner.append(num + L - 1)
             self.domains.append(IntegrationDomain(min_corner, max_corner))

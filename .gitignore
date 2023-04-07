@@ -24,6 +24,7 @@ pip-delete-this-directory.txt
 *.csv
 /data
 continuous/NSE2D
+discrete/viscek
 
 /testscript.py
 /carlos_tests/
