@@ -17,7 +17,8 @@ class CoarseGrainedPrimitive(object):  # represents rho[product of obs_list]
         self.obs_ranks = [obs.rank for obs in obs_list]  # don't know if we'll need this
         self.rank = sum(self.obs_ranks)
         # add 1 for the coarse-graining operator, rho[1] counts for 1.33
-        self.complexity = (len(obs_list) if obs_list != [] else 0.33) + 1
+        #self.complexity = (len(obs_list) if obs_list != [] else 0.33) + 1
+        self.complexity = len(obs_list) + 1 # rho[1] counts for 1
 
     def __repr__(self):
         repstr = [str(obs) + ' * ' for obs in self.obs_list]

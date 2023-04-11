@@ -292,7 +292,7 @@ def sparse_reg(theta, opts=None, threshold='AIC', brute_force=True, delta=1e-10,
         xi = -xi
     xi = xi / max(xi)  # make largest coeff 1
     # make residuals relative to original norm(Theta)*norm(xi)
-    nm = np.linalg.norm(xi)
+    #nm = np.linalg.norm(xi)
     # lambd /= (nm*thetanm)
     # lambd /= thetanm
     # lambda1 /= thetanm
@@ -300,14 +300,17 @@ def sparse_reg(theta, opts=None, threshold='AIC', brute_force=True, delta=1e-10,
     # noinspection PyUnboundLocalVariable
     return xi, lambd, best_term, lambda1
 
-def regress(Theta, col_numbers):  # regression on a fixed set of terms
+def regress(Theta, col_numbers, col_weights, normalization=None):  # regression on a fixed set of terms
     h, w = Theta.shape
-    thetanm = np.linalg.norm(Theta[:, 0])
-    col_norms = np.linalg.norm(Theta, axis=0)
-    #print(h, w, col_norms.shape)
+    if normalization is None:
+        thetanm = np.linalg.norm(Theta[:, 0])
+    else:
+        thetanm = normalization
+    #col_weights = np.linalg.norm(Theta, axis=0)
+    #print(h, w, col_weights.shape)
     Theta_copy = Theta.copy()
-    for term in range(col_norms.shape[0]):
-            Theta_copy[:, term] = Theta_copy[:, term] / col_norms[term]
+    for term in range(len(col_weights)):
+            Theta_copy[:, term] = Theta_copy[:, term] / col_weights[term]
     # fix scaling w/ respect to number of columns
     #thetanm /= np.sqrt(w)
     smallinds = np.ones(shape=(w,))
@@ -317,16 +320,16 @@ def regress(Theta, col_numbers):  # regression on a fixed set of terms
     v = v.transpose()
     xi[smallinds == 0] = v[:, -1]
     
-    xi = xi / col_norms
+    nms = np.zeros(shape=(len(xi),1))
+    for i in range(len(xi)):
+        nms[i] = np.linalg.norm(Theta_copy[:, i] * xi[i])
+    thetanm = np.max(nms) # relative residual is max ||Q_ic_i||
+    lambd = np.linalg.norm(Theta_copy @ xi)/thetanm # changed to relative residual
+    xi = xi / col_weights
     if -min(xi) > max(xi):  # ensure vectors are "positive"
         xi = -xi
     xi = xi / max(xi)  # make largest coeff 1
-    lambd = np.linalg.norm(Theta @ xi)/thetanm
 
-    # make residuals relative to original norm(Theta)*norm(xi)
-    #nm = np.linalg.norm(xi)
-    # lambd /= (nm*thetanm)
-    #lambd /= thetanm
     return xi, lambd
 
 # taken with minor modifications from Bertsekas paper code

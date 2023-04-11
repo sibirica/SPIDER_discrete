@@ -121,6 +121,8 @@ class SRDataset(object):  # structures all data associated with a given sparse r
         self.domain_neighbors = None
         self.cutoff = cutoff  # how many std deviations to cut off gaussians at
         self.scale_dict = None  # dict of characteristic scales of observables -> (mean, std)
+        self.xscale = 1 # length scale for correct computation of char scales (default 1)
+        self.tscale = 1 # time scale
 
     def make_libraries(self, max_complexity=4, max_observables=3, max_rho=999):
         self.libs = dict()
@@ -367,6 +369,11 @@ class SRDataset(object):  # structures all data associated with a given sparse r
         rho_cgp = self.cgps[rho_ind]
         rho_std = np.std(np.dstack([self.cg_dict[rho_cgp, (), domain] for domain in self.domains]))
         self.scale_dict['rho']['std'] = rho_std
+        
+    ### TO DO: compute correlation length/time automatically
+    def set_LT_scale(self, L, T):
+        self.xscale = L
+        self.tscale = T
 
     def get_char_size(self, term):
         # return characteristic size of a library term
@@ -383,9 +390,9 @@ class SRDataset(object):  # structures all data associated with a given sparse r
                 product *= self.scale_dict[name][statistic]
             # add in rho contribution (every primitive contains a rho)
             product *= self.scale_dict['rho'][statistic]
-            # scale by grid spacings for derivatives (should already be accounted for by findiff)
-            # product /= self.dxs[0]**xorder
-            # product /= self.dxs[-1]**torder
+            # scale by correlation length (time) / dx (dt)
+            product /= self.xscale**xorder
+            product /= self.tscale**torder
         return product
 
     def find_row_weights(self):
@@ -426,8 +433,6 @@ def get_slice(arr, domain):
         arr_slice = arr_slice[tuple(idx)]
     return arr_slice
 
-
-# FIXME UNTESTED
 def get_dims(term, ndims, dim=None, start=0, do=None, od=None):
     # yield all of the possible x, y, z labelings for a given LibraryTerm
     labels = term.labels
