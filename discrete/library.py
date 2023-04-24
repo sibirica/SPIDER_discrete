@@ -708,7 +708,12 @@ class Equation(object):  # can represent equation (expression = 0) OR expression
         return self.__rmul__(other)
 
     def __repr__(self):
-        repstr = [str(coeff) + ' * ' + str(term) + ' + ' for term, coeff in zip(self.term_list, self.coeffs)]
+        repstr = [
+            "{:.3e}".format(coeff) +  # Scientific notation rounded to 3 decimal places
+            ' * ' +
+            str(term) +
+            ' + '
+            for term, coeff in zip(self.term_list, self.coeffs)]
         return reduce(add, repstr)[:-3]
 
     def __str__(self):
