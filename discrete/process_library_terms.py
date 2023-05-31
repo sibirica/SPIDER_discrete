@@ -123,6 +123,8 @@ class SRDataset(object):  # structures all data associated with a given sparse r
         self.scale_dict = None  # dict of characteristic scales of observables -> (mean, std)
         self.xscale = 1 # length scale for correct computation of char scales (default 1)
         self.tscale = 1 # time scale
+        # use only if interpolation is moved into SRDataset functionality (i.e. on specific domains only)
+        #self.interp_factor = 1 # subsampling factor by which to interpolate positions/data in time
 
     def make_libraries(self, max_complexity=4, max_observables=3, max_rho=999):
         self.libs = dict()
@@ -133,8 +135,8 @@ class SRDataset(object):  # structures all data associated with a given sparse r
 
     def make_domains(self, ndomains, domain_size, pad=0):
         self.domains = []
-        scaled_dims = [int(s * self.cg_res) for s in domain_size[:-1]] + [domain_size[-1]]
-        scaled_world_size = [int(s * self.cg_res) for s in self.world_size[:-1]] + [self.world_size[-1]]
+        scaled_dims = [int(s * self.cg_res) for s in domain_size[:-1]] + [domain_size[-1]] #self.interp_factor *
+        scaled_world_size = [int(s * self.cg_res) for s in self.world_size[:-1]] + [self.world_size[-1]] # self.interp_factor *
         pads = [np.ceil(pad*self.cg_res) for s in domain_size[:-1]] + [0] # padding by pad in original units on spatial dims
         self.domain_size = scaled_dims
         for i in range(ndomains):
@@ -145,6 +147,10 @@ class SRDataset(object):  # structures all data associated with a given sparse r
                 num = np.random.randint(pad_i, max_lim - (L + pad_i) + 1)
                 min_corner.append(num)
                 max_corner.append(num + L - 1)
+            # (potentially) less messy if we fix beginning/end of time extent to the actual measurements
+            #time_fraction = min_corner % self.interp_factor
+            #min_corner -= time_fraction
+            #max_corner -= time_fraction
             self.domains.append(IntegrationDomain(min_corner, max_corner))
 
     def find_domain_neighbors(self):
@@ -165,7 +171,7 @@ class SRDataset(object):  # structures all data associated with a given sparse r
             self.weights.append(Weight([m] * self.n_dimensions, q, [0] * self.n_dimensions,
                                        dxs=self.weight_dxs))
 
-    def eval_term(self, term, weight, domain, debug):
+    def eval_term(self, term, weight, domain, debug=False):
         # term: IndexedTerm
         # weight
         # domain: IntegrationDomain corresponding to where the term is evaluated
@@ -199,6 +205,11 @@ class SRDataset(object):  # structures all data associated with a given sparse r
         product *= weight_arr
         return product
 
+    # use only if interpolation is moved into SRDataset functionality (i.e. on specific domains only)
+    #def set_interp_factor(self, factor):
+    #    self.interp_factor = factor
+    #    self.dxs[-1] /= factor
+    
     def eval_cgp(self, cgp, obs_dims, domain, experimental=True):
         data_slice = np.zeros(domain.shape)
         if self.domain_neighbors is None:
@@ -270,9 +281,8 @@ class SRDataset(object):  # structures all data associated with a given sparse r
             if debug:
                 print(f"***RANK {rank} LIBRARY***")
             terms = self.libs[rank].terms
-            dshape = self.domain_size
             if rank == 1:
-                d = len(dshape) - 1  # dimensionality of equation
+                d = self.n_dimensions - 1  # dimensionality of equation
             else:
                 d = 1
             q = np.zeros(shape=(len(self.weights) * len(self.domains) * d, len(terms)))
@@ -292,49 +302,10 @@ class SRDataset(object):  # structures all data associated with a given sparse r
                             kc = None
                         else:
                             kc = k
-                        arr = np.zeros(np.append(dshape, len(self.domains)))
-                        if isinstance(term, ConstantTerm):
-                            # "short circuit" the evaluation to deal with constant term case
-                            for _p, domain in enumerate(self.domains):
-                                weight_arr = weight.get_weight_array(dshape)
-                                # I think this should not be weight_dxs?
-                                q[row_index, i] = int_arr(weight_arr, self.dxs)
-                                if debug and _p == 0:
-                                    print("Value: ", q[row_index, i])
-                                row_index += 1
-                            continue
-                        # note: temporal index not included here
-                        for (space_orders, obs_dims) in get_dims(term, len(dshape) - 1, kc):
-                            # print(term, kc, list(get_dims(term, len(dshape)-1, kc)), space_orders, obs_dims)
-                            # first, make labeling canonical within each CGP
-                            if space_orders is None and obs_dims is None:
-                                space_orders = [[0] * len(dshape) for i in term.obs_list]
-                                canon_obs_dims = [[None] * i.cgp.rank for i in term.obs_list]
-                            else:
-                                canon_obs_dims = []
-                                for sub_list, prim in zip(obs_dims, term.obs_list):
-                                    canon_obs_dims.append(prim.cgp.index_canon(sub_list))
-                            # integrate by parts
-                            indexed_term = IndexedTerm(term, space_orders, canon_obs_dims)
-                            # note that we have taken integration by parts outside of the domain loop
-                            if debug:
-                                print("ORIGINAL TERM:")
-                                print(indexed_term, [o.dimorders for o in indexed_term.obs_list])
-                            if by_parts:
-                                # integration by parts
-                                for mod_term, mod_weight in int_by_parts(indexed_term, weight):
-                                    if debug:
-                                        print("INTEGRATED BY PARTS:")
-                                        print(mod_term, [o.dimorders for o in mod_term.obs_list],
-                                              mod_weight)
-                                    for _p, domain in enumerate(self.domains):
-                                        arr[..., _p] += self.eval_term(mod_term, mod_weight,
-                                                                       domain, debug=(debug and _p == 0))
-                            else:
-                                for _p, domain in enumerate(self.domains):
-                                    arr[..., _p] += self.eval_term(indexed_term, weight, domain,
-                                                                   debug=(debug and _p == 0))
+                        arr = self.make_tw_arr(term, weight, self.domains, kc, by_parts, debug)
                         for _p in range(len(self.domains)):
+                            # currently each spatial dimension of the term is treated as a separate row,
+                            # i.e. weights are effectively vectors aligned along each of the axes 
                             q[row_index, i] = int_arr(arr[..., _p], self.dxs)
                             if debug and _p == 0:
                                 print("Value: ", q[row_index, i])
@@ -343,14 +314,56 @@ class SRDataset(object):  # structures all data associated with a given sparse r
             self.libs[rank].Q = q
             # return q
 
-            # this is also a reasonable place to compute the column weights
-            # if self.scale_dict is None: # haven't computed scales yet
+        # this is also a reasonable place to compute the column weights
+        # if self.scale_dict is None: # haven't computed scales yet
         self.find_scales()
         for rank in (0, 1):
             self.libs[rank].col_weights = [self.get_char_size(term) for term in self.libs[rank].terms]
-            # if rank==0: # then we can also compute the row weights
+        # if rank==0: # then we can also compute the row weights
         self.find_row_weights()
 
+    # separated into helper function to simplify external plotting of fields
+    def make_tw_arr(self, term, weight, domains, k, by_parts, debug=False):
+        dshape = self.domain_size # we don't currently allow domains to have different shapes, though we could
+        arr = np.zeros(np.append(dshape, len(domains)))
+        if isinstance(term, ConstantTerm):
+            # "short circuit" the evaluation to deal with constant term case
+            for _p, domain in enumerate(domains):
+                arr[..., _p] = weight.get_weight_array(dshape)
+            return arr
+        # note: temporal index not included here
+        for (space_orders, obs_dims) in get_dims(term, self.n_dimensions - 1, k):
+            # print(term, kc, list(get_dims(term, self.n_dimensions-1, k)), space_orders, obs_dims)
+            # first, make labeling canonical within each CGP
+            if space_orders is None and obs_dims is None:
+                space_orders = [[0] * self.n_dimensions for i in term.obs_list]
+                canon_obs_dims = [[None] * i.cgp.rank for i in term.obs_list]
+            else:
+                canon_obs_dims = []
+                for sub_list, prim in zip(obs_dims, term.obs_list):
+                    canon_obs_dims.append(prim.cgp.index_canon(sub_list))
+            # integrate by parts
+            indexed_term = IndexedTerm(term, space_orders, canon_obs_dims)
+            # note that we have taken integration by parts outside of the domain loop
+            if debug:
+                print("ORIGINAL TERM:")
+                print(indexed_term, [o.dimorders for o in indexed_term.obs_list])
+            if by_parts:
+                # integration by parts
+                for mod_term, mod_weight in int_by_parts(indexed_term, weight):
+                    if debug:
+                        print("INTEGRATED BY PARTS:")
+                        print(mod_term, [o.dimorders for o in mod_term.obs_list],
+                              mod_weight)
+                    for _p, domain in enumerate(domains):
+                        arr[..., _p] += self.eval_term(mod_term, mod_weight,
+                                                       domain, debug=(debug and _p == 0))
+            else:
+                for _p, domain in enumerate(domains):
+                    arr[..., _p] += self.eval_term(indexed_term, weight, domain,
+                                                   debug=(debug and _p == 0))
+        return arr
+        
     def find_scales(self, names=None):
         # find mean/std deviation of fields in data_dict that are in names
         self.scale_dict = dict()
@@ -548,7 +561,7 @@ def int_by_parts_dim(term, weight, dim):
             return
 
 
-def diff(data, dorders, dxs=None, acc=4):
+def diff(data, dorders, dxs=None, acc=6):
     # for spatial directions can use finite differences or spectral differentiation. For time, only the former.
     # in any case, it's probably best to pre-compute the derivatives on the whole domains (at least up to order 2).
     # with integration by parts, there shouldn't be higher derivatives.
