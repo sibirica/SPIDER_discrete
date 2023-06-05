@@ -36,7 +36,7 @@ def interp_particle(part_data, rate, k, u, eval_pts):
 
 def plot_interp(part_data, fine_data): # plot interpolation for one particle
     fig, ax = plt.subplots(1, 1)
-    ax.plot(fine_data[0, :], fine_data[1, :], ',-')
+    ax.plot(fine_data[0, :], fine_data[1, :], ',')
     ax.plot(part_data[0, :], part_data[1, :], 'go', markersize=4, fillstyle='none')
 
     plt.show()
