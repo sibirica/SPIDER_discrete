@@ -1,7 +1,7 @@
 import numpy as np
 import copy
 from operator import mul
-
+import scipy
 from findiff import FinDiff
 from commons.weight import *
 from convolution import *
