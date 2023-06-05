@@ -231,7 +231,12 @@ class SRDataset(object):  # structures all data associated with a given sparse r
                     weights *= data.astype(np.float)
                     obs_dim_ind += obs.rank
                 sigma = self.scaled_sigma**2 / (self.cg_res**2)
-                inv_cov = np.eye(2) / sigma
+                # Check scipy version. If it's lower than 1.10, use inverse_covariance, otherwise use Cholesky
+                if int(scipy.__version__.split(".")[0]) <= 1 and int(scipy.__version__.split(".")[1]) < 10:
+                    inv_cov = np.eye(2) / sigma
+                else:
+                    inv_cov = np.eye(2) * sigma
+                    inv_cov = np.linalg.cholesky(inv_cov[::-1, ::-1]).T[::-1, ::-1]
                 min_corner = domain.min_corner[:-1]
                 max_corner = domain.max_corner[:-1]
                 xx, yy = np.mgrid[min_corner[0]:(max_corner[0] + 1), min_corner[1]:(max_corner[1] + 1)]
