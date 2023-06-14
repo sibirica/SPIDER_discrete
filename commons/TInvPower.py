@@ -24,7 +24,8 @@ def TInvPower(A, k, x0=None, mu0=None, tol=1e-12, max_iter=50, verbose=False):
             print("Exiting early due to singular matrix")
             return x, mu
         inds = np.argpartition(np.abs(y), -k)[-k:] # indices of largest absolute entries
-        y = keep_inds(y, inds)
+        #y = keep_inds(y, inds)
+        y = solve(A, inds) # solve subsystem with inds exactly
         y /= np.linalg.norm(y)
         #mu = y.T @ A @ y # comment out to fix mu
         update_size = min(np.linalg.norm(y - x), np.linalg.norm(y + x))/np.linalg.norm(y)
@@ -43,3 +44,9 @@ def smallest_sv(A):
     U, Sigma, V = np.linalg.svd(A, full_matrices=True)
     V = V.transpose()  # since numpy SVD returns the transpose
     return V[:, -1] # smallest singular vector
+
+def solve(A, inds):
+    w = A.shape[1]
+    x = np.zeros(shape=(w,))
+    x[np.ix_(inds)] = smallest_sv(A[np.ix_(inds, inds)]) # work on submatrix with inds
+    return x
