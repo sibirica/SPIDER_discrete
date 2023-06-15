@@ -4,18 +4,20 @@ import sys
 import subprocess
 from timeit import default_timer as timer
 from commons.TInvPower import *
+#from commons.Kaczmarz import *
 
-def sparse_reg(theta, opts=None, threshold='AIC', brute_force=True, delta=1e-10, epsilon=1e-2, gamma=2,
-               verbose=False, n_terms=-1, char_sizes=None, row_norms=None, valid_single=None, avoid=None, subinds=None,
-               anchor_norm=None, method="stepwise", max_k=10):
+def sparse_reg(theta, threshold='AIC', brute_force=True, delta=1e-10, epsilon=1e-2, gamma=2,
+               verbose=False, n_terms=-1, char_sizes=None, row_norms=None, valid_single=None, avoid=None, subinds=None, anchor_norm=None, method="stepwise", max_k=10, start_k=20, inhomog=False, inhomog_col=None):
     # compute sparse regression on Theta * xi = 0
     # Theta: matrix of integrated terms
     # char_sizes: vector of characteristic term sizes (per column)
     # row_norms: desired norm of each row
     # valid_single: vector of 1s/0s (valid single term model/not)
-    # opts: dictionary of options
     # avoid: coefficient vectors to be orthogonal to
     # and a lot more not described above
+    # NEW ARGUMENTS: start_k - used in method='hybrid', power method at k=start_k and then stepwise reduction the rest of the way
+    # inhomog - for inhomogeneous regression, paired with inhomog_col: which term to use as b.
+    # note: only brute force stepwise method implemented for inhomogeneous regression
 
     if avoid is None:
         avoid = []
@@ -62,16 +64,22 @@ def sparse_reg(theta, opts=None, threshold='AIC', brute_force=True, delta=1e-10,
     if valid_single is None:
         valid_single = np.ones(shape=(w, 1))
 
-    u, sigma, v = np.linalg.svd(theta, full_matrices=True)
-    v = v.transpose()  # since numpy SVD returns the transpose
-    xi = v[:, -1]
+    if inhomog:
+        b = theta[:, inhomog_col]
+        theta_wo_b = np.hstack([theta[:, :inhomog_col], theta[:, inhomog_col+1:]])
+        xi_unaug, _, _, _ = np.linalg.lstsq(theta_wo_b, b, rcond=None)
+        xi = np.hstack([xi_unaug[:inhomog_col], [-1], xi_unaug[inhomog_col:]])
+    else:
+        u, sigma, v = np.linalg.svd(theta, full_matrices=True)
+        v = v.transpose()  # since numpy SVD returns the transpose
+        xi = v[:, -1]
+    lambd = np.linalg.norm(theta @ xi) / thetanm
     if verbose:
         # print("sigma:", sigma)
         # Sigmas = sigma[sigma[:]>0]
         #print("v:", v)
         #print("scores:", np.log(sigma))  # np.log(Sigmas)/np.min(Sigmas)
         pass
-    lambd = np.linalg.norm(theta @ xi) / thetanm
     if verbose:
         print('lambda:', lambd)
     # find best one-term model as well
@@ -85,10 +93,11 @@ def sparse_reg(theta, opts=None, threshold='AIC', brute_force=True, delta=1e-10,
         # noinspection PyUnboundLocalVariable
         return [1], np.inf, best_term, lambda1
     
-    if method == "discrete": 
+    if method == "discrete": # (does not work)
         # BUGS: COEFFICIENTS AREN'T ALWAYS IN THE CORRECT ORDER (hopefully fixed) 
-        # Additionally if Sigma entries are too large Mosek can crash (hopefuly fixed)
-        # and imports are very slow (batching helps)
+        # Additionally if Sigma entries are too large Mosek can crash (hopefully fixed)
+        # and imports are very slow (batching helps).
+        # Most importantly, the optimization program doesn't do at all what we want.
         max_k = min(max_k, w) # max_k can't be bigger than w
         xis = np.zeros(shape=(max_k, w))
         lambdas = np.zeros(max_k)
@@ -136,14 +145,33 @@ def sparse_reg(theta, opts=None, threshold='AIC', brute_force=True, delta=1e-10,
             if verbose:
                 print("k:", k, "xi:", xi, "lambda:", lambdas[i])
         margins = lambdas[1:]/lambdas[:-1]
-    else: # method == "stepwise"
+    if method == "stepwise": # initialization for stepwise method
         xis = np.zeros(shape=(w, w))  # record coefficients
         smallinds = np.zeros(w)
+        if inhomog:
+            smallinds[inhomog_col] = 1
         margins = np.zeros(w)  # increases in residual per time step
         lambdas = np.zeros(w)
         lambdas[0] = lambd
+        iters = w-1
+    elif method == "hybrid": # alternate initialization for hybrid power method
+        xi = None
+        max_k = min(start_k, w) # max_k can't be bigger than w
+        xis = np.zeros(shape=(max_k, w))
+        lambdas = np.zeros(max_k)
+        sigma_in = theta.T @ theta 
+        xi, mu, it = TInvPower(sigma_in, max_k, x0=xi, mu0=0, verbose=False)
+        xis[0] = xi
+        lambdas[0] = np.linalg.norm(theta @ xi) / thetanm
+        smallinds = (xis[0]==0)
+        if verbose:
+            print("initial k:", max_k, "xi:", xi, "lambda:", lambdas[0])
+        iters = max_k-1
+        margins = np.zeros(max_k)
+        method = "stepwise" # switch to rest of stepwise iteration
+    if method == "stepwise": # run stepwise iteration
         flag = False
-        for i in range(w - 1):
+        for i in range(iters):
             xis[i] = xi
             if brute_force:
                 # product of the coefficient and characteristic size of library function
@@ -157,11 +185,16 @@ def sparse_reg(theta, opts=None, threshold='AIC', brute_force=True, delta=1e-10,
                         smallinds_copy[p_ind] = 1
                         xi_copy = np.copy(xi)
                         xi_copy[p_ind] = 0
-                        _, _, v = np.linalg.svd(theta[:, smallinds_copy == 0], full_matrices=True)
-                        v = v.transpose()
-                        xi_copy[smallinds_copy == 0] = v[:, -1]
-                        # noinspection PyUnboundLocalVariable
-                        res_inc[p_ind] = np.linalg.norm(theta @ xi_copy) / thetanm / lambd
+                        if inhomog:
+                            subtheta = theta[:, smallinds_copy == 0]
+                            xi_copy, _, _, _ = np.linalg.lstsq(subtheta, b, rcond=None)
+                            res_inc[p_ind] = np.linalg.norm(b - subtheta @ xi_copy) / thetanm / lambd
+                        else:
+                            _, _, v = np.linalg.svd(theta[:, smallinds_copy == 0], full_matrices=True)
+                            v = v.transpose()
+                            xi_copy[smallinds_copy == 0] = v[:, -1]
+                            # noinspection PyUnboundLocalVariable
+                            res_inc[p_ind] = np.linalg.norm(theta @ xi_copy) / thetanm / lambd
                 else:
                     col = theta[:, p_ind]
                     # project out other columns
@@ -172,6 +205,8 @@ def sparse_reg(theta, opts=None, threshold='AIC', brute_force=True, delta=1e-10,
                     # product[p_ind] = np.linalg.norm(xi[p_ind]*col)/np.linalg.norm(Theta)
                     product[p_ind] = np.linalg.norm(xi[p_ind] * col)
             if brute_force:
+                #if inhomog: # prevent the required column from being dropped
+                #    res_inc[inhomog_col] = np.inf
                 y, ii = min(res_inc), np.argmin(res_inc)
                 if verbose:
                     print("y:", y, "ii:", ii)
@@ -183,19 +218,28 @@ def sparse_reg(theta, opts=None, threshold='AIC', brute_force=True, delta=1e-10,
                 if (y <= gamma) or (threshold != "threshold") or (lambd <= delta):
                     smallinds[ii] = 1
                     xi[ii] = 0
-                    _, _, v = np.linalg.svd(theta[:, smallinds == 0], full_matrices=True)
-                    v = v.transpose()
-                    xi[smallinds == 0] = v[:, -1]
+                    if inhomog:
+                        subtheta = theta[:, smallinds == 0]
+                        xi[smallinds == 0], _, _, _ = np.linalg.lstsq(subtheta, b, rcond=None)
+                        xi[inhomog_col] = -1
+                    else:
+                        _, _, v = np.linalg.svd(theta[:, smallinds == 0], full_matrices=True)
+                        v = v.transpose()
+                        xi[smallinds == 0] = v[:, -1]
                     lambd = np.linalg.norm(theta @ xi) / thetanm
                     lambdas[i + 1] = lambd
                     if sum(smallinds == 0) == 1:
                         margins[-1] = np.inf
+                        if inhomog: # the normal last iteration is never run since one term cannot be kept
+                            lambdas[-1] = np.linalg.norm(b) / thetanm
                         break
                 else:
                     if verbose:
                         print("y:", y, "ii:", ii)
                     break
             else:
+                #if inhomog: # prevent the required column from being dropped
+                #    product[inhomog_col] = np.inf
                 product[smallinds == 1] = np.inf
                 y, ii = min(product), np.argmin(product)
                 if verbose:
@@ -265,11 +309,11 @@ def sparse_reg(theta, opts=None, threshold='AIC', brute_force=True, delta=1e-10,
         else: # select first term which tripped the criteria
             i_mar = max(np.argmax(gt_delta) - 1, np.argmax(large_margin))
         if verbose:
-            #print(lambdas > delta)
-            #print(margins > gamma)
+            print(lambdas > delta)
+            print(margins > gamma)
             print("i_mar:", i_mar)
         xi = xis[i_mar]  # stopping_point
-        lambd = np.linalg.norm(theta @ xi) / thetanm
+        lambd = lambdas[i_mar-1]
 
     if verbose:
         print("xis:", xis)
