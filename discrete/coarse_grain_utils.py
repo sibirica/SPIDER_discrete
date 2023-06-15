@@ -74,7 +74,8 @@ def kd_gaussian_coarse_grain2d(points: float64[:, :],
     m: uint64 = xi.shape[0]  # number of evaluation points
 
     points_: float64[n, d] = points / sigma  # the scaled data points
-    tree = KDTree(points_)  # the KDTree of the scaled data points
+    leaf_size: uint64 = np.floor(np.log2(n))  # the leaf_size of the KDTree (log2(n) is a good heuristic)
+    tree = KDTree(points_, leafsize=leaf_size)  # the KDTree of the scaled data points
 
     xi_: float64[m, d] = xi / sigma  # the scaled evaluation points
 
