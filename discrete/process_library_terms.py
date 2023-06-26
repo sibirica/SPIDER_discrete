@@ -225,6 +225,8 @@ class SRDataset(object):  # structures all data associated with a given sparse r
                  obs_dims,
                  domain: IntegrationDomain,
                  experimental: bool = True):
+        if self.n_dimensions != 3:
+            experimental = False
         data_slice = np.zeros(domain.shape)
         if experimental:
             pt_pos = self.scaled_pts[:, :, domain.times] / self.cg_res  # Unscaled positions
@@ -317,7 +319,8 @@ class SRDataset(object):  # structures all data associated with a given sparse r
                         #    print(rngs, g_nd.shape, coeff)
                         time_slice[tuple(rngs)] += g_nd * coeff
                     data_slice[..., t] = time_slice
-        data_slice *= self.cg_res ** (self.n_dimensions - 1)  # need to scale rho by res^(# spatial dims)!
+        if not experimental:
+            data_slice *= self.cg_res ** (self.n_dimensions - 1)  # need to scale rho by res^(# spatial dims)!
         return data_slice
 
     def make_library_matrices(self, by_parts=True, debug=False):
