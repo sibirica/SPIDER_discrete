@@ -237,7 +237,7 @@ class SRDataset(object):  # structures all data associated with a given sparse r
                     data = self.data_dict[obs.string][:, obs_dims[obs_dim_ind], domain.times]
                 weights *= data.astype(np.float)
                 obs_dim_ind += obs.rank
-            sigma = self.scaled_sigma ** 2 / (self.cg_res ** 2)
+            sigma = self.scaled_sigma / self.cg_res
             min_corner = domain.min_corner[:-1]
             max_corner = domain.max_corner[:-1]
             xx, yy = np.mgrid[
@@ -248,7 +248,7 @@ class SRDataset(object):  # structures all data associated with a given sparse r
                 (xx / self.cg_res).ravel(),
                 (yy / self.cg_res).ravel(),
             ]).T
-            data_slice = coarse_grain_time_slices(pt_pos, weights, xi, sigma)
+            data_slice = coarse_grain_time_slices(pt_pos, weights, xi, sigma, self.cutoff)
             data_slice = data_slice.reshape(domain.shape)
         else:
             if self.domain_neighbors is None:
