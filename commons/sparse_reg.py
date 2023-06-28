@@ -313,7 +313,10 @@ def sparse_reg(theta, threshold='AIC', brute_force=True, delta=1e-10, epsilon=1e
             print(margins > gamma)
             print("i_mar:", i_mar)
         xi = xis[i_mar]  # stopping_point
-        lambd = lambdas[i_mar-1]
+        if inhomog: # might give wrong results for a 2-term library(?) but that won't happen in practice
+            lambd = lambdas[i_mar-1]
+        else:
+            lambd = np.linalg.norm(theta @ xi) / thetanm
 
     if verbose:
         print("xis:", xis)
