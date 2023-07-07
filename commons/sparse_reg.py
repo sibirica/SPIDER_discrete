@@ -215,7 +215,7 @@ def sparse_reg(theta, threshold='AIC', brute_force=True, delta=1e-10, epsilon=1e
                     # print('res_inc:', res_inc)
                     if threshold != "multiplicative":
                         print("i", i, "lambda", lambd)  # for pareto plot
-                if (y <= gamma) or (threshold != "threshold") or (lambd <= delta):
+                if (y <= gamma) or (threshold != "threshold") or (lambd <= delta) or (n_terms > 1):
                     smallinds[ii] = 1
                     xi[ii] = 0
                     if inhomog:
@@ -236,6 +236,7 @@ def sparse_reg(theta, threshold='AIC', brute_force=True, delta=1e-10, epsilon=1e
                 else:
                     if verbose:
                         print("y:", y, "ii:", ii)
+                    lambdas[i + 1] = margins[i] * lambd
                     break
             else:
                 #if inhomog: # prevent the required column from being dropped
@@ -261,7 +262,7 @@ def sparse_reg(theta, threshold='AIC', brute_force=True, delta=1e-10, epsilon=1e
                 if verbose:
                     print("lambda:", lambd, " margin:", margin)
                 margins[i] = margin
-                if (margin > gamma) and (lambd > delta) and (threshold == "threshold"):
+                if (margin > gamma) and (lambd > delta) and (threshold == "threshold") and (n_terms == -1):
                     print("ii:", ii)
                     xi = xi_old
                     print("xi:", xi)
@@ -285,8 +286,8 @@ def sparse_reg(theta, threshold='AIC', brute_force=True, delta=1e-10, epsilon=1e
         lambd = lambdas[opt_i]
     elif threshold == "pareto":
         y_mar, i_mar = max(margins), np.argmax(margins)
-        if n_terms > 1:
-            i_mar = sum(margins > 0) - n_terms
+        #if n_terms > 1:
+        #    i_mar = sum(margins > 0) - n_terms
         if verbose:
             print("margins:", margins)
             print("y_mar:", y_mar, "i_mar:", i_mar)
@@ -299,8 +300,8 @@ def sparse_reg(theta, threshold='AIC', brute_force=True, delta=1e-10, epsilon=1e
         xi = xis[i_sm]  # stopping_point
         lambd = np.linalg.norm(theta @ xi) / thetanm
     else: #if threshold == 'threshold'
-        if n_terms > 1:  # Don't think this line does anything functionally but I also don't really use this
-            i_mar = sum(margins > 0) - n_terms
+        #if n_terms > 1:  # Don't think this line does anything functionally but I also don't really use this
+        #    i_mar = sum(margins > 0) - n_terms
         lambdas[0] = lambdas[1]  # FIXME DUCT TAPE since I don't know what's going on (basically first lambda is big)
         gt_delta = (lambdas > delta)
         large_margin = (margins > gamma)
@@ -314,10 +315,17 @@ def sparse_reg(theta, threshold='AIC', brute_force=True, delta=1e-10, epsilon=1e
             print("i_mar:", i_mar)
         xi = xis[i_mar]  # stopping_point
         if inhomog: # might give wrong results for a 2-term library(?) but that won't happen in practice
-            lambd = lambdas[i_mar-1]
+            lambd = lambdas[i_mar]
         else:
             lambd = np.linalg.norm(theta @ xi) / thetanm
-
+    # n_terms logic done directly here now
+    if n_terms > 1:
+        i_mar = w - n_terms
+        xi = xis[i_mar]  # stopping_point
+        if inhomog: # might give wrong results for a 2-term library(?) but that won't happen in practice
+            lambd = lambdas[i_mar]
+        else:
+            lambd = np.linalg.norm(theta @ xi) / thetanm
     if verbose:
         print("xis:", xis)
     # now compare single term and sparsified model
