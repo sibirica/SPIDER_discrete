@@ -1,10 +1,10 @@
 import copy
 from functools import reduce
-from operator import add
-from typing import List, Dict, Union, Iterable, Any, Optional, Iterator
 from numbers import Real
-import numpy as np
+from operator import add
+from typing import Any, Optional
 from warnings import warn
+
 from numpy import inf
 
 from commons.library import *
@@ -56,7 +56,7 @@ class LibraryPrimitive(object):
 
     def __gt__(self, other: 'LibraryPrimitive') -> bool:
         """
-        Explicity defines the equivalence a < b <-> b > a, when a and b are LibraryPrimitive objects.
+        Explicitly defines the equivalence a < b <-> b > a, when a and b are LibraryPrimitive objects.
 
         :param other: LibraryPrimitive to compare to.
         :return: Test comparison result.
@@ -79,7 +79,7 @@ class LibraryPrimitive(object):
 
     def __ne__(self, other: 'LibraryPrimitive') -> bool:
         """
-        Explicity defines != as the negation of == for LibraryPrimitive objects.
+        Explicitly defines != as the negation of == for LibraryPrimitive objects.
 
         :param other: LibraryPrimitive to compare to.
         :return: Test comparison result.
@@ -111,7 +111,7 @@ class IndexedPrimitive(LibraryPrimitive):
     initialization.
 
     :attribute observable: Observable object represented by this class.
-    :attribute rank: int rerpesenting the tensor rank.
+    :attribute rank: int representing the tensor rank.
     :attribute complexity: number representing the complexity score of the object.
     :attribute ndims: number of spatial-temporal dimensions.
     :attribute nderivs: sum of all derivative orders.
@@ -135,11 +135,11 @@ class IndexedPrimitive(LibraryPrimitive):
         :param prim: Primitive to which initialize the class. It may be a LibraryPrimitive or an IndexedPrimitive.
         :param space_orders: List containing the order of the spatial derivatives. Ex: [1,2,3] would represent a first
         order derivative in x, a second order derivative in y, and a third order derivative in z. Only applied when
-        initializng from a LibraryPrimitve.
+        initializing from a LibraryPrimitve.
         :param obs_dim: Integer representing the Dimension of the observable/tensor. For example the x component of a
-        velocity field would have this value set to 0. Only applied when initializng from a LibraryPrimitve.
+        velocity field would have this value set to 0. Only applied when initializing from a LibraryPrimitve.
         :param newords: (New orders) List containing the order of the spatial and time derivatives. Ex: [1,2,3,0] would
-        represent afirst order derivative in x, a second order derivative in y, a third order derivative in z, and no
+        represent a first order derivative in x, a second order derivative in y, a third order derivative in z, and no
         time derivatives. Only used when initialized from another IndexedPrimitive.
         """
 
@@ -185,7 +185,7 @@ class IndexedPrimitive(LibraryPrimitive):
         """
         IndexedPrimitives are represented as 'dx^i dy^j dz^k dt^l O_e' where O stands for the observable, and e is the
         dimension subscript (Ex. v_x is the x component of v). If the derivative orders (a.k.a. i,j,k,l) are 1, they are
-        ommited, if they are 0 the whole derivative term is ommited.
+        omitted, if they are 0 the whole derivative term is omitted.
         """
         torder = self.dimorders[-1]
         xstring = ""
@@ -249,7 +249,7 @@ class IndexedPrimitive(LibraryPrimitive):
                         self.obs_dim == other.obs_dim
                         ])
         except AttributeError:
-            raise TypeError(f"Can't infer if type {type(other)} succceeds a IndexedPrimitive")
+            raise TypeError(f"Can't infer if type {type(other)} succeeds a IndexedPrimitive")
 
     def diff(self, dim: int) -> 'IndexedPrimitive':
         """
@@ -344,7 +344,7 @@ class LibraryTerm(object):
     https://github.com/sibirica/SPIDER_discrete/wiki/Index-Lists-and-Labels
     :attribute der_index_list: Similar to index_list, but only contains derivative indexes.
     :attribute obs_index_list: Similar to index_list, but only contains observable indexes.
-    :attribute is_canonical: Flags wether this object is in canonical form.
+    :attribute is_canonical: Flags whether this object is in canonical form.
     """
     canon_dict = dict()  # used to store ambiguous canonicalizations (which shouldn't exist for less than 6 indices)
 
@@ -414,7 +414,7 @@ class LibraryTerm(object):
 
     def __ne__(self, other) -> bool:
         """
-        Explicity defines the != (not equals) operator as the negation of the == (equals) operator for LibraryTerms.
+        Explicitly defines the != (not equals) operator as the negation of the == (equals) operator for LibraryTerms.
         NOTE: assumes both LibraryTerm are in canonical form.
 
         :param other: LibraryTerm to compare inequality equality with.
@@ -424,7 +424,7 @@ class LibraryTerm(object):
 
     def __lt__(self, other) -> bool:
         """
-        Explicity defines the < (lesser than) operator between a LibraryTensor and another object with string
+        Explicitly defines the < (lesser than) operator between a LibraryTensor and another object with string
         representation. The comparison result is the same as if it was applied to the objects' string representation.
 
         :param other: Object to compare inequality with.
@@ -434,7 +434,7 @@ class LibraryTerm(object):
 
     def __gt__(self, other) -> bool:
         """
-        Explicity defines the > (greater than) operator between a LibraryTensor and another object with string
+        Explicitly defines the > (greater than) operator between a LibraryTensor and another object with string
         representation. The comparison result is the same as if it was applied to the objects' string representation.
 
         :param other: Object to compare inequality with.
@@ -467,8 +467,8 @@ class LibraryTerm(object):
     # noinspection DuplicatedCode
     def __mul__(self, other) -> Union['LibraryTerm', 'Equation']:
         """
-        This method explicity defines the * (multiplication) operator for LibraryTerm, when the object is on the left of
-        the operand.
+        This method explicitly defines the * (multiplication) operator for LibraryTerm, when the object is on the left
+        of the operand.
         The multiplication operation can be thought of as the scalar product. Multiplying a scalar by a scalar yields a
         scalar, a scalar by a vector yield a vector, and a vector by a vector yields a scalar.
         NOTE: The product is always returned in canonical form.
@@ -500,7 +500,7 @@ class LibraryTerm(object):
 
     def __rmul__(self, other):
         """
-        Explicity defines multiplication as commutative.
+        Explicitly defines multiplication as commutative.
 
         :param other: Object to be multiplied by.
         :return: Product.
@@ -568,7 +568,7 @@ class LibraryTerm(object):
         """
         Returns the LibraryTerm's canonical representation and set LibraryTerm.is_canonical to True (used to determine
         if the LibraryTerm is valid). Other than ordering and the aforementioned is_canonical flag, the objects'
-        properties remain unchaged.
+        properties remain unchanged.
 
         :return: LibraryTerm's canonical representation.
         """
@@ -600,7 +600,7 @@ class LibraryTerm(object):
         Generates a new LibraryTerm identical to self, but whose indices were incremented by a fixed integer amount inc.
 
         :param inc: Integer amount to increment indices by.
-        :return: LibraryTerm with similar propreties, but whose indices were incremented by inc.
+        :return: LibraryTerm with similar properties, but whose indices were incremented by inc.
         """
         index_list = [[index + inc for index in li] for li in self.index_list]
         return LibraryTerm(LibraryTensor(self.obs_list), index_list=index_list)
@@ -652,7 +652,7 @@ class LibraryTerm(object):
 
 class IndexedTerm(object):  # LibraryTerm with i's mapped to x/y/z
     """
-    LibraryTerm with i's mapped to x/y/z. Equivalent to LibraryTerm, but stores observables as IndexedPrimtives rather
+    LibraryTerm with i's mapped to x/y/z. Equivalent to LibraryTerm, but stores observables as IndexedPrimitives rather
     than LibraryPrimitives.
 
     :attribute complexity: Complexity score of the object. Equals the sum of the complexity score of the stored
@@ -679,7 +679,7 @@ class IndexedTerm(object):  # LibraryTerm with i's mapped to x/y/z
         :param obs_list: List of IndexedPrimitive to initialize the object with.
         """
 
-        # Asserts exactly one of the costructors is given.
+        # Asserts exactly one of the constructors is given.
         # https://drive.google.com/file/d/16HE6t1pO0l4yoS-l_Mhrme3lPT9T1_7R/view?usp=sharing
         if (obs_list is not None) ^ (libterm is None or space_orders is None or obs_dims is None):
             raise TypeError("Indexed term must be initialized with a obs_list, XOR libterm and space_orders and "
@@ -742,7 +742,7 @@ class IndexedTerm(object):  # LibraryTerm with i's mapped to x/y/z
 
     def drop(self, obs: Union[IndexedPrimitive, Any]) -> 'IndexedTerm':
         """
-        Returns a copy of this IndexedTerm whithout the first instance of provided IndexedPrimitive in its object list.
+        Returns a copy of this IndexedTerm without the first instance of provided IndexedPrimitive in its object list.
         NOTE: Does not check if the IndexedPrimitive is present in self.obs_list if len(self.obs_list) <= 1. Simply
         returning the equivalent of a ConstantTerm.
 
@@ -759,7 +759,7 @@ class IndexedTerm(object):  # LibraryTerm with i's mapped to x/y/z
 
     def drop_all(self, obs: Union[IndexedPrimitive, Any]) -> 'IndexedTerm':  # remove *ALL* instances of obs
         """
-        Returns a copy of this IndexedTerm whithout any instances of the provided IndexedPrimitive in its object list.
+        Returns a copy of this IndexedTerm without any instances of the provided IndexedPrimitive in its object list.
         NOTE: Does not check if the IndexedPrimitive is present in self.obs_list if len(self.obs_list) <= 1. Simply
         returning the equivalent of a ConstantTerm.
 
@@ -826,7 +826,7 @@ class ConstantTerm(IndexedTerm):
 
 def label_repr(prim: LibraryPrimitive, ind1: List[str], ind2: List[str]) -> str:
     """
-    Given a LibraryPrimitive, the list of differencial indexes, and its list of obsevable indexes. Returns a formatted
+    Given a LibraryPrimitive, the list of differential indexes, and its list of observable indexes. Returns a formatted
     string of its representation.
     A Library Primitive is represented by its time derivative(if any) with respective order(if greater than one),
     followed by its spatial derivative (if any) with respective index and order (if greater than one), followed by the
@@ -948,13 +948,13 @@ def generate_terms_to(order: int,
 
 class Equation(object):  # can represent equation (expression = 0) OR expression
     """
-    Equation objects may represent an equation (an expression that equals to zero) or an expresion.
+    Equation objects may represent an equation (an expression that equals to zero) or an expression.
 
     :attribute coeffs: Sequence of Real numbers that represent the coefficient of each term in the Equation.
     :attribute complexity: Complexity score of the object. Equal to the sum of the complexity attribute of each object
     stored in self.term_list.
     :attribute rank: Tensor rank of the equation or expression.
-    :attribute term_list: Sequence of LibraryTerm objects representing the tersm of the Equation.
+    :attribute term_list: Sequence of LibraryTerm objects representing the terms of the Equation.
     """
 
     # terms are LibraryTerms, coeffs are real numbers
@@ -996,7 +996,7 @@ class Equation(object):  # can represent equation (expression = 0) OR expression
         Explicitly defines multiplication for Equation objects. Multiplying an Equation by a LibraryTerm results in
         an Equation where every term of the original Equation is multiplied by the LibraryTerm and is then
         canonicalized. Multiplying an Equation by a number simply returns a similar Equation where each item of
-        self.coeffs is multiplyied by that number.
+        self.coeffs is multiplied by that number.
 
         :param other: Object to multiply the Equation by.
         :return: Equation resulting of the product other*self.
@@ -1017,7 +1017,7 @@ class Equation(object):  # can represent equation (expression = 0) OR expression
 
     def __mul__(self, other) -> 'Equation':
         """
-        Explicity establishes the commutativity of multiplication with Equation objects.
+        Explicitly establishes the commutativity of multiplication with Equation objects.
 
         :param other: Object to multiply the Equation by.
         :return: Equation resulting of the product other*self.
@@ -1117,7 +1117,7 @@ class Equation(object):  # can represent equation (expression = 0) OR expression
         except the one with the highest complexity, to the right hand side, then dividing both sides to assure the
         right hand side has coefficient 1.
 
-        :param return_normalization: Wether to return the coefficient of the most complex term.
+        :param return_normalization: Whether to return the coefficient of the most complex term.
         :return: Tuple with the most complex LibraryTerm, Equation with the remaining terms normalized by -1 * its
         coefficient, and (if return_normalization is True) the coefficient itself.
         """
@@ -1168,7 +1168,7 @@ class TermSum(Equation):
     def __str__(self):
         """
         A TermSum 's string is constructed in the same manner as an Equation 's; however, as all coefficients are known
-        to be 1 their representation is ommited.
+        to be 1 their representation is omitted.
 
         :return: String representing the TermSum
         """
