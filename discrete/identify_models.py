@@ -6,7 +6,7 @@ from commons.sparse_reg import *
 
 
 # does not properly identify all implications since generation via dx is incomplete from an indexing perspective
-# e.g., both generation via differentiation and multiplication cant follow the path rho[v_i]->dj rho[v_i]->dj^2 rho[v_i]
+# e.g., both generation via differentiation and multiplication can't follow the path rho[v_i]->dj rho[v_i]->dj^2 rho[v_i]
 # most probable fix is by considering indexed tensors of ranks >=2, but this bug isn't critical
 def identify_equations(Q, reg_opts, library, threshold=1e-5, min_complexity=1,
                        max_complexity=None, max_equations=999, timed=True, excluded_terms=None):

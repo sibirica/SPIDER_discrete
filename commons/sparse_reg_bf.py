@@ -9,28 +9,28 @@ from itertools import combinations
 # also, not a good idea to use backward-forward=false with combinatorial start as it will stop at max_k
 
 class Scaler(object): # pre- and postprocessing by scaling/nondimensionalizing data
-    def __init__(self, sub_inds, char_sizes, row_norms):
+    def __init__(self, sub_inds, char_sizes, row_norms=None): # note: char_sizes should always be set
         self.full_w = len(char_sizes)
-        self.sub_inds = sub_inds if sub_inds else list(range(full_w)) # default is keeping all indices
+        self.sub_inds = sub_inds if sub_inds is not None else list(range(self.full_w)) # default is keeping all indices
         self.w = len(self.sub_inds)
-        self.char_sizes = np.array(char_sizes)[sub_inds] if char_sizes else [1]*self.w
-        self.row_norms = np.array(row_norms)[sub_inds] if row_norms else None
+        self.char_sizes = np.array(char_sizes)[self.sub_inds] if char_sizes else [1]*self.w
+        self.row_norms = np.array(row_norms)[self.sub_inds] if row_norms else None
     
     def index(self, col): # find the full indexing to sub_inds conversion of a given column number
-        return self.sub_inds.index(col)
+        return self.sub_inds.index(col) if col is not None else None
     
     def scale_theta(self, theta): # rescale theta and select columns from subinds
         theta = np.copy(theta)  # avoid bugs where array is modified in place
-        theta = theta[:, subinds]
-        if row_norms is not None:
-            for row in range(len(row_norms)):
-                theta[row, :] *= row_norms[row]
-        for term in range(len(char_sizes)):
-            theta[:, term] = theta[:, term] / char_sizes[term]  # renormalize by characteristic 
+        theta = theta[:, self.sub_inds]
+        if self.row_norms is not None:
+            for row in range(len(self.row_norms)):
+                theta[row, :] *= self.row_norms[row]
+        for term in range(len(self.char_sizes)):
+            theta[:, term] /= self.char_sizes[term]  # renormalize by characteristic 
         return theta
         
-    def postprocess_multi_term(self, xi, lambd, norm, verbose=False): # Xi postprocessing
-        full_xi = np.zeros(shape=(self.full_w, 1))
+    def postprocess_multi_term(self, xi, lambd, norm, verbose): # Xi postprocessing
+        full_xi = np.zeros(shape=(self.full_w,))
         xi = xi / self.char_sizes  # renormalize by char. size
         if -min(xi) > max(xi):  # ensure vectors are "positive"
             xi = -xi
@@ -39,16 +39,21 @@ class Scaler(object): # pre- and postprocessing by scaling/nondimensionalizing d
             full_xi[self.sub_inds[i]] = c
         if verbose:
             print("final xi", full_xi)
-            print("final lambda:", lambd, "final lambda1:", lambda1)
+            print("final lambda:", lambd)
         return full_xi, lambd/norm
         
-    def postprocess_single_term(self, best_term, lambda1, norm):
+    def postprocess_single_term(self, best_term, lambda1, norm, verbose):
+        if verbose:
+            print("final lambda1:", lambda1/norm)
         return self.sub_inds[best_term], lambda1/norm
 
 class Initializer(object): # selecting initial guess
-    def __init__(self, method, start_k):
+    def __init__(self, method, start_k=None):
         self.method = method
-        self.start_k = start_k
+        if start_k is None:
+            self.start_k = start_k
+        else:
+            self.start_k = 2 if method == 'combinatorial' else 10
         self.inhomog = None
         self.inhomog_col = None #note: should be set to converted index in sublibrary
     
@@ -56,7 +61,7 @@ class Initializer(object): # selecting initial guess
         self.start_k = min(w, self.start_k)
         return self.start_k
     
-    def prepare_inhomog(inhomog, inhomog_col, scaler)
+    def prepare_inhomog(self, inhomog, inhomog_col, scaler):
         self.inhomog = inhomog
         self.inhomog_col = scaler.index(inhomog_col)
     
@@ -66,11 +71,11 @@ class Initializer(object): # selecting initial guess
             w = theta.shape[1]
             inds = list(range(w))
             best_lambd = np.inf
-            for combo in combinations(inds, start_k): # return all combinations of start_k terms
-                if inhomog and inhomog_col not in inds:
+            for combo in combinations(inds, self.start_k): # return all combinations of start_k terms
+                if self.inhomog and self.inhomog_col not in combo:
                     continue
-                xi_try = solve(theta, inds)
-                lambd = theta @ xi
+                xi_try = solve(theta, combo, self.inhomog_col)
+                lambd = np.linalg.norm(theta @ xi_try)
                 if lambd<best_lambd:
                     best_lambd = lambd
                     xi = xi_try
@@ -78,26 +83,25 @@ class Initializer(object): # selecting initial guess
             iter_direction = "backward"
         elif self.method == 'power':
             sigma_in = theta.T @ theta 
-            xi, mu, it = TInvPower(sigma_in, start_k, mu0=0, verbose=False, forced_col=inhomog_col)
+            xi, mu, it = TInvPower(sigma_in, self.start_k, mu0=0, verbose=False, forced_col=self.inhomog_col)
             if verbose:
                 print("mu:", mu, ", # of iterations: ", it)
-            lambd = theta @ xi # always return absolute residual until postprocessing
+            lambd = np.linalg.norm(theta @ xi) # always return absolute residual until postprocessing
             iter_direction = "forward"
-        if inhomog: # normalization with b term = -1
-            lambd /= np.abs(xi[inhomog_col])
-            xi /= -xi[inhomog_col] # normalize it to -1
+        if self.inhomog: # normalization with b term = -1
+            lambd /= np.abs(xi[self.inhomog_col])
+            xi /= -xi[self.inhomog_col] # normalize it to -1
         if verbose:
             print("initial xi:", xi)
             print("initial lambda:", lambd)
         return xi, lambd, iter_direction
 
 class ModelIterator(object): # selecting next iterate and enforcing stopping condition
-    def __init__(self, max_k, threshold, backward_forward=True, brute_force=True):
+    def __init__(self, max_k, backward_forward=True, brute_force=True, max_passes=10): #threshold
         self.max_k = max_k # do not try models with more than max_k terms
-        self.threshold = threshold # threshold object
+        #self.threshold = threshold # threshold object
         self.backward_forward = backward_forward
-        self.brute_force = brute_force
-        self.n_terms = n_terms
+        self.brute_force = brute_force # sadly non-brute force seems to drop key terms in dominant balance
         self.inhomog = None
         self.inhomog_col = None # note: should be set to converted index in sublibrary
 
@@ -108,6 +112,8 @@ class ModelIterator(object): # selecting next iterate and enforcing stopping con
         #self.has_reversed = False # True if backward-forward iteration has already turned around
         self.state = None
         #self.stopped_early = False # may want to set True if early stopping so selection is clear
+        self.max_passes = max_passes # to prevent infinite loop from ever occuring
+        self.passes = 0
         
     def set_k(self, k):
         self.k = k
@@ -115,26 +121,29 @@ class ModelIterator(object): # selecting next iterate and enforcing stopping con
     def set_direction(self, direction):
         self.direction = direction
         
-    def set_terms(self, inds):
-        self.terms = inds
+    def set_terms(self, inds, verbose):
+        self.terms = list(inds)
+        if verbose:
+            print("Terms:", self.terms)
         
-    def prepare_inhomog(inhomog, inhomog_col, scaler)
+    def prepare_inhomog(self, inhomog, inhomog_col, scaler):
         self.inhomog = inhomog
         self.inhomog_col = scaler.index(inhomog_col)
     
-    def save_state(self, xis)
-        self.state = xis
+    def save_state(self, xis):
+        self.state = np.copy(xis)
         
     def other_terms(self, w): # return range(w)\terms
-        return [i in range(w) if i not in self.terms]
+        return [i for i in range(w) if i not in self.terms]
         
-    def get_next(self, theta, xi):
+    def get_next(self, theta, xi, verbose):
         if verbose:
-            print("Direction: ", self.direction, "k:", k)
+            print(f"Direction: {self.direction}; k: {self.k}")
         if self.direction == "forward":
             ind = self.drop(theta, xi, verbose) # choose a term to drop
             self.terms.remove(ind)
-            if len(self.terms)==1:
+            self.k -= 1
+            if self.k==1:
                 #self.has_reversed=True
                 self.direction = "backward"
                 if verbose:
@@ -142,66 +151,83 @@ class ModelIterator(object): # selecting next iterate and enforcing stopping con
         else:
             ind = self.pick(theta, xi, verbose) # choose a term to pick up
             self.terms.append(ind)
-            if len(self.terms)==max_k:
+            self.k += 1
+            if self.k==self.max_k:
                 #self.has_reversed=True
                 self.direction = "forward"
                 if verbose:
                     print("max_k terms left! Direction may be reversed")
         xi = solve(theta, self.terms, self.inhomog_col)
-        lambd = theta @ xi
+        lambd = np.linalg.norm(theta @ xi)
         if verbose:
             print("xi:", xi)
-            print("lambda:", lambd) 
-        return xi, lambd, k
+            print("lambda:", lambd)
+            print("terms:", self.terms)
+        return xi, lambd, self.k
     
     def drop(self, theta, xi, verbose):
-        scores = np.zeros(shape=(len(terms), 1)) # term with lowest score will be dropped
-        for i, ind in enumerate(terms):
+        s = np.zeros(shape=(len(self.terms), 1)) # term with lowest score will be dropped
+        for i, ind in enumerate(self.terms):
             if ind == self.inhomog_col:
                 s[i] = np.inf # do not remove
             else:
                 if self.brute_force: # check all possible removals
-                    terms_copy = terms.copy()
+                    terms_copy = self.terms.copy()
                     terms_copy.remove(ind)
                     s[i] = smallest_sv(theta, terms_copy, value=True)
                 else: # use heuristic of term norm attributed to this column only
                     col = theta[:, ind]
-                    for j, other_ind in enumerate(terms):
+                    for j, other_ind in enumerate(self.terms):
                         # project out other columns
                         if i != j:
                             other_col = theta[:, other_ind]
                             col -= np.dot(col, other_col) / np.linalg.norm(other_col)**2 * other_col
                     s[i] = np.linalg.norm(xi[ind] * col)
+        best = self.terms[np.argmin(s)]
         if verbose:
-            print("Scores of terms to remove:", zip(terms, scores))
-        return terms[np.argmin(scores)]   
+            print("Scores of terms to remove:", [(i, float(j)) for i, j in zip(self.terms, s)])
+            print("Removing term:", best)
+        return best 
         
-    def pick(self, theta, xi):
+    def pick(self, theta, xi, verbose):
         w = theta.shape[1]
-        scores = np.zeros(shape=(w-len(terms), 1)) # term with lowest score will be dropped
+        s = np.zeros(shape=(w-len(self.terms), 1)) # term with lowest score will be dropped
         other_terms = self.other_terms(w)
+        if not self.brute_force:
+            residual_col = theta @ xi
         for i, ind in enumerate(other_terms):
             if self.brute_force: # check all possible removals
-                terms_copy = terms.copy()
+                terms_copy = self.terms.copy()
                 terms_copy.append(ind)
                 s[i] = smallest_sv(theta, terms_copy, value=True)
-            else: # use heuristic of term norm attributed to this column only
+            else: # use heuristic of projection of residual onto this column
                 col = theta[:, ind]
-                for j, other_ind in enumerate(terms):
-                    # project out other columns
-                    other_col = theta[:, other_ind]
-                    col -= np.dot(col, other_col) / np.linalg.norm(other_col)**2 * other_col
-                s[i] = np.linalg.norm(col) # guess for xi[col] not yet available   
+                proj = residual_col - np.dot(residual_col, col) / np.linalg.norm(col)**2 * col
+                s[i] = -np.linalg.norm(proj) # guess for xi[col] not yet available 
+        best = other_terms[np.argmin(s)]
         if verbose:
-            print("Scores of terms to add:", zip(other_terms, scores))
-        return other_terms[np.argmin(scores)]
+            print("Scores of terms to add:", [(i, float(j)) for i, j in zip(other_terms, s)])
+            print("Adding term:", best)
+        return best
     
     def check_exit(self, xis, lambdas, verbose):
-        if k!=1 and k!=max_k: # we haven't finished iterating to the end
+        if self.k!=1 and self.k!=self.max_k: # we haven't finished iterating to the end
             return False # it is possible to add checking early stopping conditions on lambdas here
-        if self.backward_forward and xis!=self.state: # xis has changed via bf iteration
+        new_terms = np.abs(np.sign(xis))
+        old_terms = np.abs(np.sign(self.state))
+        differences = new_terms-old_terms
+        if verbose:
+            print("Changed terms:", differences)
+        if self.backward_forward and np.any(differences): # entries in xis have changed via iteration
+            self.passes += 1
+            if self.passes>=self.max_passes:
+                if verbose:
+                    print(f"Max number of passes reached ({self.max_passes}), exiting.")
+                return True
             if verbose:
-                print("Continuing backward-forward iteration...")
+                #print("Current xis:", xis)
+                #print("Saved xis:", self.state)
+                print(f"{self.passes} passes, continuing backward-forward iteration...")
             self.save_state(xis) # update xis
             return False
         if verbose:
@@ -209,16 +235,20 @@ class ModelIterator(object): # selecting next iterate and enforcing stopping con
         return True # otherwise we are done
         # for instance suppose xis did not change during b or f iteration. when it was saved it was optimal going in the other direction, and currently is optimal in the other direction, so no update will occur.
 
+### NOTE: NOT TOO THOROUGHLY TESTED, BUT SEEMS TO BE WORKING OK?
 class Residual(object): # residual computation
     # residual_type "absolute" is always 1
     # residual_type "fixed_column" is computed based on a fixed column of theta
     # residual_type "matrix_relative" is relative to norm of theta[:, sub_inds] after preprocessing
     # residual_type "dominant_balance" is relative to norm of largest term in initial dominant balance
     def __init__(self, residual_type, anchor_col=None):
-        self.res_type = residual_type
-        self.anchor_col = scaler.index(anchor_col)
+        self.residual_type = residual_type
         if residual_type == "absolute":
             self.norm = 1
+        self.anchor_col = anchor_col
+    #    self.indexed_col = None
+    #def set_anchor(self, scaler):
+    #    self.indexed_col = scaler.index(self.anchor_col)
     def set_norm(self, value):
         self.norm = value
         
@@ -228,34 +258,40 @@ class Threshold(object):
         if self.type == 'jump':
             self.delta = delta
             self.gamma = gamma
-        elif self.type = 'multiplicative':
+        elif self.type == 'multiplicative':
             self.epsilon = epsilon
-        elif self.type = 'information":
+        elif self.type == 'information':
             self.information_criterion = ic
         self.n_terms = n_terms
     
-    def select_model(lambdas, theta, lambda1, verbose):
+    def select_model(self, lambdas, theta, lambda1, verbose):
         if self.n_terms is not None:
             return self.n_terms-1
         if self.type == 'jump': # check when lambda>delta and jump in lambda>gamma
             jumps = lambdas[:-1]/lambdas[1:]
             i = len(lambdas)-1
-            while (jumps[i-1]<self.gamma or lambdas[i-1]>self.delta) and i>0:
+            while (jumps[i-1]<self.gamma or lambdas[i-1]<self.delta) and i>0:
                 i -= 1
-            return i
-        elif self.type = 'information': # minimize information criterion
-            h = theta.shape[0]
-            ics = [self.ic(lambd, i+1, h) for i, lambd in enumerate(lambdas)]
             if verbose:
-                print(f'str{self.ic}s: {ics}') ### NOT SURE IF THIS IS THE WAY TO RETURN NAME OF THE FUNCTION
+                print("Jumps:", jumps)
+                print('optimal i', i)
+            return i
+        elif self.type == 'information': # minimize information criterion - DUBIOUS criterion
+            h = theta.shape[0]
+            ics = [self.information_criterion(lambd, i+1, h) for i, lambd in enumerate(lambdas)]
+            opt_i = np.argmin(ics)
+            if verbose:
+                print(f'{self.information_criterion.__name__}s: {ics}') ### NOT SURE IF THIS IS THE WAY TO RETURN NAME OF THE FUNCTION
                 print('optimal i', opt_i)
-            return np.argmin(ics)
-        elif self.type = 'multiplicative': # check when lambda<epsilon*lambda1
+            return opt_i
+        elif self.type == 'multiplicative': # check when lambda<epsilon*lambda1
             i = 0
+            if verbose:
+                print("Ratios:", lambdas/lambda1)
             while lambdas[i]/lambda1>self.epsilon and i<len(lambdas):
                 i += 1
             return i
-        elif self.type = 'pareto': # select model before largest residual increase
+        elif self.type == 'pareto': # select model before largest residual increase - DUBIOUS criterion
             jumps = lambdas[1:]/lambdas[:-1]
             biggest_jump = np.argmax(jumps)
             if verbose:
@@ -263,7 +299,7 @@ class Threshold(object):
                 print("biggest jump:", biggest_jump, "to", biggest_jump+1)
             return biggest_jump+1
         
-def sparse_reg_bf(theta, scaler, initializer, model_iterator, threshold, inhomog=False, inhomog_col=None, full_regression=False, verbose=False):
+def sparse_reg_bf(theta, scaler, initializer, residual, model_iterator, threshold, inhomog=False, inhomog_col=None, full_regression=False, verbose=False):
     # compute sparse regression on Theta * xi = 0
     # theta: matrix of integrated terms
     # threshold: model selection criterion
@@ -279,13 +315,15 @@ def sparse_reg_bf(theta, scaler, initializer, model_iterator, threshold, inhomog
     # full_regression: True if searching for dense solution
 
     # set relative residual normalization (if not dominant balance residual)
+    np.set_printoptions(precision=3)
     if residual.residual_type == "fixed_column":
-        residual.set_norm(np.linalg.norm(theta[:, residual.anchor_col]))
+        residual.set_norm(np.linalg.norm(theta[:, scaler.index(residual.anchor_col)]))
+        if verbose:
+            print('Residual normalization:', residual.norm)
     elif residual.residual_type == "matrix_relative":
         residual.set_norm(np.linalg.norm(theta)/theta.shape[1]) 
-    if verbose:
-        np.set_printoptions(precision=3)
-        print('Residual normalization:', residual.norm)
+        if verbose:
+            print('Residual normalization:', residual.norm)
     
     ### PREPROCESSING
     theta = scaler.scale_theta(theta)   
@@ -293,6 +331,8 @@ def sparse_reg_bf(theta, scaler, initializer, model_iterator, threshold, inhomog
         
     ### CHECK ONE-TERM MODELS
     nrm = np.zeros(w)
+    if verbose:
+        print("Checking single-term residuals...")
     for term in range(w):
         nrm[term] = np.linalg.norm(theta[:, term])
         if verbose:
@@ -311,36 +351,46 @@ def sparse_reg_bf(theta, scaler, initializer, model_iterator, threshold, inhomog
         initializer.start_k = w
     k = initializer.check_start_k(w)
     if verbose:
-        print("Starting k:", k)
+        print("Initializing solution with starting k:", k)
     initializer.prepare_inhomog(inhomog, inhomog_col, scaler)
     xi, lambd, iter_direction = initializer.make_model(theta, verbose)
-    xis = np.zeros(shape=(w, w))
-    lambdas = np.zeros(shape=(w, 1))
-    xis[k-1] = xi # we have reversed order of arrays compared to old SR - index = n_terms-1
+    
+    max_k = min(model_iterator.max_k, w)
+    xis = np.zeros(shape=(max_k, w))
+    lambdas = np.inf*np.ones(shape=(max_k,)) # any lambdas that are not computed are assumed to be very large
+    xis[k-1, :] = xi # we have reversed order of arrays compared to old SR - index = n_terms-1
     lambdas[k-1] = lambd
-    if residual.residual_type == "dominant_balance":
-        qc_cols = np.zeros_like(lambdas)
-        for term in range(w):
-            qc_cols[term] = np.linalg.norm(theta[:, term]*xi[term])
-            if verbose:
-                print(f'qc_col[{term}]:', nrm[term])
-        residual.set_norm(np.max(qc_cols))
-        
+    
+    if verbose:
+        print("Iterating to find model...")
     if not full_regression:
         ### MODEL SELECTION
         model_iterator.set_k(k)
         model_iterator.set_direction(iter_direction)
         model_iterator.prepare_inhomog(inhomog, inhomog_col, scaler)
-        w_inds = list(range(w))
-        model_iterator.set_terms(w_inds[xi!=0])
+        w_inds = np.array(range(w))
+        model_iterator.set_terms(w_inds[xi!=0], verbose) # NOTE that the indices are wrt sublibrary!
         model_iterator.save_state(xis) # save current state of xis to check if no progress has been made
+        
+        if residual.residual_type == "dominant_balance":
+            qc_cols = np.zeros(shape=(w,))
+            for term in model_iterator.terms:
+                qc_cols[term] = np.linalg.norm(theta[:, term]*xi[term])
+                if verbose:
+                    print(f'qc_col[{term}]:', nrm[term])
+            residual.set_norm(np.max(qc_cols))
+            if verbose:
+                print('Residual normalization:', residual.norm)
+        
+        exit = False
         while not exit:
             ### ITERATION RULE
             xi, lambd, k = model_iterator.get_next(theta, xi, verbose)
-
             # update current variables in iteration
-            xis[k-1] = xi # we have reversed order of arrays compared to old SR - index = n_terms-1
+            xis[k-1, :] = xi # we have reversed order of arrays compared to old SR - index = n_terms-1
             lambdas[k-1] = lambd
+            #if verbose:
+            #    print("current xis:", xis)
 
             ### test if final model
             exit = model_iterator.check_exit(xis, lambdas, verbose)
@@ -349,14 +399,23 @@ def sparse_reg_bf(theta, scaler, initializer, model_iterator, threshold, inhomog
             print("all lambdas:", lambdas)
         ind = threshold.select_model(lambdas, theta, lambda1, verbose)
     else: # just keep all terms
-        ind = -1
+        ind = -1     
+        if residual.residual_type == "dominant_balance":
+            qc_cols = np.zeros_like(lambdas)
+            for term in range(w):
+                qc_cols[term] = np.linalg.norm(theta[:, term]*xi[term])
+                if verbose:
+                    print(f'qc_col[{term}]:', nrm[term])
+            residual.set_norm(np.max(qc_cols))
+            if verbose:
+                print('Residual normalization:', residual.norm)
     if verbose:
         print("Optimal number of terms:", ind+1 if ind!=-1 else "(all)")
-    xi, lambd = xis[ind], lambdas[ind]
+    xi, lambd = xis[ind, :], lambdas[ind]
     
     ### POSTPROCESSING
     xi, lambd = scaler.postprocess_multi_term(xi, lambd, residual.norm, verbose)
-    best_term, lambda1 = scaler.postprocess_single_term(best_term, lambda1, residual.norm)
+    best_term, lambda1 = scaler.postprocess_single_term(best_term, lambda1, residual.norm, verbose)
     
     return xi, lambd, best_term, lambda1
 
