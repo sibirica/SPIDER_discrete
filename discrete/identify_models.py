@@ -3,13 +3,17 @@ from timeit import default_timer as timer
 
 from library import *
 from commons.sparse_reg import *
+from commons.sparse_reg_bf import *
 
 
 # does not properly identify all implications since generation via dx is incomplete from an indexing perspective
 # e.g., both generation via differentiation and multiplication can't follow the path rho[v_i]->dj rho[v_i]->dj^2 rho[v_i]
 # most probable fix is by considering indexed tensors of ranks >=2, but this bug isn't critical
-def identify_equations(Q, reg_opts, library, threshold=1e-5, min_complexity=1,
-                       max_complexity=None, max_equations=999, timed=True, excluded_terms=None):
+def identify_equations(Q, reg_opts, library, threshold=1e-5, min_complexity=1, max_complexity=None,
+                       max_equations=999, timed=True, excluded_terms=None, experimental=True):
+    
+    # set experimental to True to use sparse_reg_bf
+    
     # trying to avoid retaining the values
     if excluded_terms is None:
         excluded_terms = set()
@@ -34,11 +38,18 @@ def identify_equations(Q, reg_opts, library, threshold=1e-5, min_complexity=1,
                 break
             sublibrary = [s[0] for s in selection]
             inds = [s[1] for s in selection]
-            reg_opts['subinds'] = inds
             # identify model
             if 'verbose' in reg_opts.keys() and reg_opts['verbose']:
                 print("Checking library:", sublibrary)
-            eq, res = make_equation_from_Xi(*sparse_reg(Q, **reg_opts), sublibrary)
+            if experimental:
+                # only difference in bf regression conventions is that Xi corresponds to full library
+                reg_opts['scaler'].reset_inds(inds)
+                #print(reg_opts)
+                eq, res = make_equation_from_Xi(*sparse_reg_bf(Q, **reg_opts), library)
+            else:
+                reg_opts['subinds'] = inds
+                eq, res = make_equation_from_Xi(*sparse_reg(Q, **reg_opts), sublibrary)
+    
             if 'verbose' in reg_opts.keys() and reg_opts['verbose']:
                 print('Result:', eq, '. residual:', res)
             if res > threshold:
@@ -59,8 +70,8 @@ def identify_equations(Q, reg_opts, library, threshold=1e-5, min_complexity=1,
     return equations, lambdas, derived_eqns, excluded_terms
 
 
-def interleave_identify(Qs, reg_opts_list, libraries, threshold=1e-5, min_complexity=1,
-                        max_complexity=None, max_equations=999, timed=True, excluded_terms=None):
+def interleave_identify(Qs, reg_opts_list, libraries, threshold=1e-5, min_complexity=1, max_complexity=None,
+                        max_equations=999, timed=True, excluded_terms=None, experimental=True):
     # trying to avoid retaining the values
     if excluded_terms is None:
         excluded_terms = set()
@@ -72,10 +83,13 @@ def interleave_identify(Qs, reg_opts_list, libraries, threshold=1e-5, min_comple
     for complexity in range(min_complexity, max_complexity + 1):
         for Q, reg_opts, library in zip(Qs, reg_opts_list, libraries):
             eqs_i, lbds_i, der_eqns_i, exc_terms_i = identify_equations(Q, reg_opts, library,
-                                                                        threshold=threshold, min_complexity=complexity,
+                                                                        threshold=threshold,
+                                                                        min_complexity=complexity,
                                                                         max_complexity=complexity,
-                                                                        max_equations=max_equations, timed=timed,
-                                                                        excluded_terms=excluded_terms)
+                                                                        max_equations=max_equations,
+                                                                        timed=timed,
+                                                                        excluded_terms=excluded_terms,
+                                                                        experimental=experimental)
             equations += eqs_i
             lambdas += lbds_i
             derived_eqns.update(der_eqns_i)
@@ -90,14 +104,13 @@ def form_equation(lhs, rhs):
         return TermSum([lhs]) + (-1) * rhs
 
 
-def make_equation_from_Xi(Xi, lambd, best_term, lambda1, sublibrary):
-    # print(Xi, lambd, best_term, lambda1, sublibrary)
+def make_equation_from_Xi(Xi, lambd, best_term, lambda1, lib):
+    # print(Xi, lambd, best_term, lambda1, lib)
     if lambda1 < lambd:
-        return Equation([sublibrary[best_term]], [1]), lambda1
+        return Equation([lib[best_term]], [1]), lambda1
     else:
-        zipped = [(sublibrary[i], c) for i, c in enumerate(Xi) if c != 0]
+        zipped = [(lib[i], c) for i, c in enumerate(Xi) if c != 0]
         return Equation([e[0] for e in zipped], [e[1] for e in zipped]), lambd
-
 
 def unpack_prims(term):
     if isinstance(term, ConstantTerm):

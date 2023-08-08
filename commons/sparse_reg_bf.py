@@ -13,11 +13,22 @@ class Scaler(object): # pre- and postprocessing by scaling/nondimensionalizing d
         self.full_w = len(char_sizes)
         self.sub_inds = sub_inds if sub_inds is not None else list(range(self.full_w)) # default is keeping all indices
         self.w = len(self.sub_inds)
-        self.char_sizes = np.array(char_sizes)[self.sub_inds] if char_sizes else [1]*self.w
-        self.row_norms = np.array(row_norms)[self.sub_inds] if row_norms else None
+        # useful if we want to reuse a Scaler except with different sub_inds
+        self.full_cs = np.array(char_sizes) if char_sizes else np.ones(shape=(self.w,))
+        self.char_sizes = self.full_cs[self.sub_inds]
+        self.row_norms = np.array(row_norms) if row_norms else None
+        
+    def reset_inds(self, sub_inds): # change sub_inds
+        self.sub_inds = sub_inds
+        self.w = len(self.sub_inds)
+        self.char_sizes = self.full_cs[self.sub_inds]
     
     def index(self, col): # find the full indexing to sub_inds conversion of a given column number
         return self.sub_inds.index(col) if col is not None else None
+    
+    def norm_col(self, theta, col): # compute norm of given column after nondimensionalization
+        idx_col = self.index(col)
+        return np.linalg.norm(theta[:, idx_col])/self.full_cs[idx_col]
     
     def scale_theta(self, theta): # rescale theta and select columns from subinds
         theta = np.copy(theta)  # avoid bugs where array is modified in place
@@ -46,6 +57,9 @@ class Scaler(object): # pre- and postprocessing by scaling/nondimensionalizing d
         if verbose:
             print("final lambda1:", lambda1/norm)
         return self.sub_inds[best_term], lambda1/norm
+    
+    def __repr__(self):
+        return f"Scaler(sub_inds={self.sub_inds}, char_sizes={self.char_sizes}, row_norms={self.row_norms})"
 
 class Initializer(object): # selecting initial guess
     def __init__(self, method, start_k=None):
@@ -95,6 +109,9 @@ class Initializer(object): # selecting initial guess
             print("initial xi:", xi)
             print("initial lambda:", lambd)
         return xi, lambd, iter_direction
+    
+    def __repr__(self):
+        return f"Initializer(method={self.method}, start_k={self.start_k})"
 
 class ModelIterator(object): # selecting next iterate and enforcing stopping condition
     def __init__(self, max_k, backward_forward=True, brute_force=True, max_passes=10): #threshold
@@ -115,11 +132,29 @@ class ModelIterator(object): # selecting next iterate and enforcing stopping con
         self.max_passes = max_passes # to prevent infinite loop from ever occuring
         self.passes = 0
         
-    def set_k(self, k):
-        self.k = k
+    def __repr__(self):
+        return f"ModelIterator(max_k={self.max_k}, backward_forward={self.backward_forward}, brute_force={self.brute_force}, max_passes={self.max_passes}, inhomog={self.inhomog}, inhomog_col={self.inhomog_col}, k={self.k}, direction={self.direction}, terms={self.terms}, passes={self.passes})"
         
-    def set_direction(self, direction):
-        self.direction = direction
+        
+    def reset(self, k, max_k, direction): # reset state variables
+        self.k = k
+        self.max_k = max_k
+        # potentially override direction
+        if k==max_k:
+            self.direction = 'forward'
+        elif k==1:
+            self.direction = 'backward'
+        else:
+            self.direction = direction
+        self.passes = 0
+        self.terms = None
+        self.state = None
+              
+    #def set_k(self, k):
+    #    self.k = k
+    #    
+    #def set_direction(self, direction):
+    #    self.direction = direction
         
     def set_terms(self, inds, verbose):
         self.terms = list(inds)
@@ -174,7 +209,11 @@ class ModelIterator(object): # selecting next iterate and enforcing stopping con
                 if self.brute_force: # check all possible removals
                     terms_copy = self.terms.copy()
                     terms_copy.remove(ind)
-                    s[i] = smallest_sv(theta, terms_copy, value=True)
+                    if self.inhomog:
+                        xi = solve(theta, terms_copy, self.inhomog_col)
+                        s[i] = np.linalg.norm(theta @ xi)/np.abs(xi[self.inhomog_col])
+                    else:
+                        s[i] = smallest_sv(theta, terms_copy, value=True)
                 else: # use heuristic of term norm attributed to this column only
                     col = theta[:, ind]
                     for j, other_ind in enumerate(self.terms):
@@ -199,7 +238,11 @@ class ModelIterator(object): # selecting next iterate and enforcing stopping con
             if self.brute_force: # check all possible removals
                 terms_copy = self.terms.copy()
                 terms_copy.append(ind)
-                s[i] = smallest_sv(theta, terms_copy, value=True)
+                if self.inhomog:
+                    xi = solve(theta, terms_copy, self.inhomog_col)
+                    s[i] = np.linalg.norm(theta @ xi)/np.abs(xi[self.inhomog_col])
+                else:
+                    s[i] = smallest_sv(theta, terms_copy, value=True)
             else: # use heuristic of projection of residual onto this column
                 col = theta[:, ind]
                 proj = residual_col - np.dot(residual_col, col) / np.linalg.norm(col)**2 * col
@@ -252,17 +295,20 @@ class Residual(object): # residual computation
     def set_norm(self, value):
         self.norm = value
         
+    def __repr__(self):
+        return f"Residual(type={self.residual_type}, norm={self.norm}, anchor_col={self.anchor_col})"
+        
 class Threshold(object):
     def __init__(self, threshold_type, delta=1e-10, gamma=1.5, epsilon=1e-2, ic=None, n_terms=None):
         self.type = threshold_type
-        if self.type == 'jump':
-            self.delta = delta
-            self.gamma = gamma
-        elif self.type == 'multiplicative':
-            self.epsilon = epsilon
-        elif self.type == 'information':
-            self.information_criterion = ic
+        self.delta = delta
+        self.gamma = gamma
+        self.epsilon = epsilon
+        self.information_criterion = ic
         self.n_terms = n_terms
+        
+    def __repr__(self):
+        return f"Threshold(type={self.type}, delta={self.delta}, gamma={self.gamma}, epsilon={self.epsilon}, ic={self.information_criterion}, n_terms={self.n_terms})"
     
     def select_model(self, lambdas, theta, lambda1, verbose):
         if self.n_terms is not None:
@@ -281,7 +327,7 @@ class Threshold(object):
             ics = [self.information_criterion(lambd, i+1, h) for i, lambd in enumerate(lambdas)]
             opt_i = np.argmin(ics)
             if verbose:
-                print(f'{self.information_criterion.__name__}s: {ics}') ### NOT SURE IF THIS IS THE WAY TO RETURN NAME OF THE FUNCTION
+                print(f'{self.information_criterion.__name__}s: {ics}')
                 print('optimal i', opt_i)
             return opt_i
         elif self.type == 'multiplicative': # check when lambda<epsilon*lambda1
@@ -317,7 +363,7 @@ def sparse_reg_bf(theta, scaler, initializer, residual, model_iterator, threshol
     # set relative residual normalization (if not dominant balance residual)
     np.set_printoptions(precision=3)
     if residual.residual_type == "fixed_column":
-        residual.set_norm(np.linalg.norm(theta[:, scaler.index(residual.anchor_col)]))
+        residual.set_norm(scaler.norm_col(theta, residual.anchor_col))
         if verbose:
             print('Residual normalization:', residual.norm)
     elif residual.residual_type == "matrix_relative":
@@ -365,12 +411,12 @@ def sparse_reg_bf(theta, scaler, initializer, residual, model_iterator, threshol
         print("Iterating to find model...")
     if not full_regression:
         ### MODEL SELECTION
-        model_iterator.set_k(k)
-        model_iterator.set_direction(iter_direction)
+        model_iterator.reset(k=k, max_k=max_k, direction=iter_direction)
         model_iterator.prepare_inhomog(inhomog, inhomog_col, scaler)
         w_inds = np.array(range(w))
         model_iterator.set_terms(w_inds[xi!=0], verbose) # NOTE that the indices are wrt sublibrary!
         model_iterator.save_state(xis) # save current state of xis to check if no progress has been made
+        #print(model_iterator)
         
         if residual.residual_type == "dominant_balance":
             qc_cols = np.zeros(shape=(w,))

@@ -27,7 +27,7 @@ def TInvPower(A, k, x0=None, mu0=None, tol=1e-12, exact=True, max_iter=50, verbo
             return x, mu
         inds = np.argpartition(np.abs(y), -k)[-k:] # indices of largest absolute entries
         if forced_col is not None and forced_col not in inds: # for inhomogeneous regression
-            inds = inds[1:] # drop the last entry
+            inds = list(inds[1:]) # drop the last entry
             inds.append(forced_col)
         inds = sorted(inds) # this should make life much easier
         if exact: # solve subsystem with inds exactly
