@@ -2,6 +2,7 @@ import numpy as np
 from commons.TInvPower import TInvPower
 from commons.sr_utils import *
 from itertools import combinations
+import copy
 
 # new approach: for modularity, pass objects handling separate steps of the regression with their own params
 
@@ -359,6 +360,10 @@ def sparse_reg_bf(theta, scaler, initializer, residual, model_iterator, threshol
     # inhomog - for inhomogeneous regression, paired with inhomog_col: which term to use as b.
     # max_k: max number of terms to keep in model
     # full_regression: True if searching for dense solution
+    # use copies of all mutable objects
+    scaler = copy.copy(scaler)
+    initializer = copy.copy(initializer)
+    model_iterator = copy.copy(model_iterator)
 
     # set relative residual normalization (if not dominant balance residual)
     np.set_printoptions(precision=3)
