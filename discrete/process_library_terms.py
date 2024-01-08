@@ -1,4 +1,6 @@
 from operator import mul
+
+import numpy as np
 import scipy
 from findiff import FinDiff
 from commons.weight import *
@@ -230,14 +232,15 @@ class SRDataset(object):  # structures all data associated with a given sparse r
         data_slice = np.zeros(domain.shape)
         if experimental:
             pt_pos = self.scaled_pts[:, :, domain.times] / self.cg_res  # Unscaled positions
-            weights = np.ones_like(pt_pos[:, 0, :], dtype=np.float)
+            pt_pos = np.float64(pt_pos)
+            weights = np.ones_like(pt_pos[:, 0, :], dtype=np.float64)
             obs_dim_ind = 0
             for obs in cgp.obs_list:
                 if obs.rank == 0:
                     data = self.data_dict[obs.string][:, 0, domain.times]
                 else:
                     data = self.data_dict[obs.string][:, obs_dims[obs_dim_ind], domain.times]
-                weights *= data.astype(np.float)
+                weights *= data.astype(np.float64)
                 obs_dim_ind += obs.rank
             sigma = self.scaled_sigma / self.cg_res
             min_corner = domain.min_corner[:-1]
@@ -262,14 +265,14 @@ class SRDataset(object):  # structures all data associated with a given sparse r
                     # experimental method using scipy.stats.gaussian_kde
                     particles = self.domain_neighbors[domain, t_shifted]
                     pt_pos = self.scaled_pts[particles, :, t_shifted] / self.cg_res
-                    weights = np.ones_like(particles, dtype=np.float)
+                    weights = np.ones_like(particles, dtype=np.float64)
                     obs_dim_ind = 0
                     for obs in cgp.obs_list:
                         if obs.rank == 0:
                             data = self.data_dict[obs.string][particles, 0, t_shifted]
                         else:
                             data = self.data_dict[obs.string][particles, obs_dims[obs_dim_ind], t_shifted]
-                        weights *= data.astype(np.float)
+                        weights *= data.astype(np.float64)
                         obs_dim_ind += obs.rank
                     sigma = self.scaled_sigma ** 2 / (self.cg_res ** 2)
                     # Check scipy version. If it's lower than 1.10, use inverse_covariance, otherwise use Cholesky
@@ -283,7 +286,7 @@ class SRDataset(object):  # structures all data associated with a given sparse r
                     xx, yy = np.mgrid[min_corner[0]:(max_corner[0] + 1), min_corner[1]:(max_corner[1] + 1)]
                     positions = np.vstack([(xx / self.cg_res).ravel(), (yy / self.cg_res).ravel()]).T
                     density = gaussian_kernel_estimate['double'](pt_pos, weights[:, None], positions, inv_cov,
-                                                                 np.float)
+                                                                 np.float64)
                     time_slice = np.reshape(density[:, 0], xx.shape)
 
                     data_slice[..., t] = time_slice / (self.cg_res ** 2)
