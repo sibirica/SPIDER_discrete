@@ -1,3 +1,4 @@
+import warnings
 from operator import mul
 
 import numpy as np
@@ -7,7 +8,7 @@ from commons.weight import *
 from convolution import *
 from library import *
 from scipy.stats._stats import gaussian_kernel_estimate
-from coarse_grain_utils import coarse_grain_time_slices
+from coarse_grain_utils import coarse_grain_time_slices, poly_coarse_grain_time_slices
 from operator import mul
 
 import scipy
@@ -226,8 +227,12 @@ class SRDataset(object):  # structures all data associated with a given sparse r
                  cgp: CoarseGrainedPrimitive,
                  obs_dims,
                  domain: IntegrationDomain,
-                 experimental: bool = True):
+                 experimental: bool = True,
+                 order: int = 4,
+                 ):
         if self.n_dimensions != 3:
+            if experimental:
+                warnings.warn("Experimental method only implemented for 2D+1 systems")
             experimental = False
         data_slice = np.zeros(domain.shape)
         if experimental:
@@ -253,7 +258,8 @@ class SRDataset(object):  # structures all data associated with a given sparse r
                 (xx / self.cg_res).ravel(),
                 (yy / self.cg_res).ravel(),
             ]).T
-            data_slice = coarse_grain_time_slices(pt_pos, weights, xi, sigma, self.cutoff)
+            dist = sigma*np.sqrt(3+2*order)
+            data_slice = poly_coarse_grain_time_slices(pt_pos, weights, xi, order, dist)
             data_slice = data_slice.reshape(domain.shape)
         else:
             if self.domain_neighbors is None:

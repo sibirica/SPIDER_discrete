@@ -245,7 +245,7 @@ def kd_poly_coarse_grain2d(points: float64[:, :],
     xi_: float64[m, d] = xi / distance  # the scaled evaluation points
 
     estimate: float64[m] = np.zeros(m)  # the estimate at the evaluation points
-    norm: float64 = np.pi*distance*distance/(1 + order)  # the normalization factor of the polynomial kernel
+    norm: float64 = np.pi * distance * distance / (1 + order)  # the normalization factor of the polynomial kernel
     for j in prange(m):
         neighbors: uint64[:] = tree.query_radius(xi_[j, :], 1)[0]
         for i in neighbors:
@@ -255,3 +255,37 @@ def kd_poly_coarse_grain2d(points: float64[:, :],
             )
 
     return estimate / norm
+
+
+@jit(
+    signature_or_function="float64[:,:](float64[:, :, :], float64[:, :], float64[:, :], float64, float64)",
+    nopython=True,
+    cache=False,
+    fastmath=False,
+    parallel=False,
+    debug=False,
+    nogil=True,
+    boundscheck=True
+)
+def poly_coarse_grain_time_slices(points: float64[:, :, :],
+                                  values: float64[:, :],
+                                  xi: float64[:, :],
+                                  order: uint8,
+                                  distance: float64) -> float64[:, :]:
+    """
+    Applies the polynomial coarse graining algorithm to a time series.
+    :param points: the data points to estimate from in 2 dimensions. Shape (n, 2).
+    :param values: the multivariate values associated with the data points. (n,)
+    :param xi: the coordinates to evaluate the estimate at in 2 dimensions. Shape (m, 2).
+    :param order: the order of the polynomial to use (n in the formula). uint8.
+    :param distance: size of the kernel (a in the formula). Float.
+    :return: the coarse grained data at the coordinates xi. Shape (m,).
+    """
+    m: uint64 = xi.shape[0]  # number of evaluation points
+    t: uint64 = points.shape[2]  # number of time slices
+
+    estimate: float64[m, t] = np.zeros((m, t))  # the estimate at the evaluation points
+    for h in range(t):
+        estimate[:, h] = kd_poly_coarse_grain2d(points[:, :, h], values[:, h], xi[:, :], order, distance)
+
+    return estimate
