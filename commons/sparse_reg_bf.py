@@ -406,7 +406,10 @@ def sparse_reg_bf(theta, scaler, initializer, residual, model_iterator, threshol
     initializer.prepare_inhomog(inhomog, inhomog_col, scaler)
     xi, lambd, iter_direction = initializer.make_model(theta, verbose)
     
+    max_k_for_reset = model_iterator.max_k
     max_k = min(model_iterator.max_k, w)
+    if verbose:
+        print(f"max_k set to {max_k}")
     xis = np.zeros(shape=(max_k, w))
     lambdas = np.inf*np.ones(shape=(max_k,)) # any lambdas that are not computed are assumed to be very large
     xis[k-1, :] = xi # we have reversed order of arrays compared to old SR - index = n_terms-1
@@ -467,6 +470,9 @@ def sparse_reg_bf(theta, scaler, initializer, residual, model_iterator, threshol
     ### POSTPROCESSING
     xi, lambd = scaler.postprocess_multi_term(xi, lambd, residual.norm, verbose)
     best_term, lambda1 = scaler.postprocess_single_term(best_term, lambda1, residual.norm, verbose)
+    
+    # Reset max_k
+    model_iterator.max_k = max_k_for_reset
     
     return xi, lambd, best_term, lambda1
 
