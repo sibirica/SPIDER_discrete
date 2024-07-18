@@ -1,11 +1,14 @@
+import warnings
 from operator import mul
+
+import numpy as np
 import scipy
 from findiff import FinDiff
 from commons.weight import *
 from convolution import *
 from library import *
 from scipy.stats._stats import gaussian_kernel_estimate
-from coarse_grain_utils import coarse_grain_time_slices
+from coarse_grain_utils import coarse_grain_time_slices, poly_coarse_grain_time_slices
 from operator import mul
 
 import scipy
@@ -224,20 +227,25 @@ class SRDataset(object):  # structures all data associated with a given sparse r
                  cgp: CoarseGrainedPrimitive,
                  obs_dims,
                  domain: IntegrationDomain,
-                 experimental: bool = True):
+                 experimental: bool = True,
+                 order: int = 4,
+                 ):
         if self.n_dimensions != 3:
+            if experimental:
+                warnings.warn("Experimental method only implemented for 2D+1 systems")
             experimental = False
         data_slice = np.zeros(domain.shape)
         if experimental:
             pt_pos = self.scaled_pts[:, :, domain.times] / self.cg_res  # Unscaled positions
-            weights = np.ones_like(pt_pos[:, 0, :], dtype=np.float)
+            pt_pos = np.float64(pt_pos)
+            weights = np.ones_like(pt_pos[:, 0, :], dtype=np.float64)
             obs_dim_ind = 0
             for obs in cgp.obs_list:
                 if obs.rank == 0:
                     data = self.data_dict[obs.string][:, 0, domain.times]
                 else:
                     data = self.data_dict[obs.string][:, obs_dims[obs_dim_ind], domain.times]
-                weights *= data.astype(np.float)
+                weights *= data.astype(np.float64)
                 obs_dim_ind += obs.rank
             sigma = self.scaled_sigma / self.cg_res
             min_corner = domain.min_corner[:-1]
@@ -250,7 +258,8 @@ class SRDataset(object):  # structures all data associated with a given sparse r
                 (xx / self.cg_res).ravel(),
                 (yy / self.cg_res).ravel(),
             ]).T
-            data_slice = coarse_grain_time_slices(pt_pos, weights, xi, sigma, self.cutoff)
+            dist = sigma*np.sqrt(3+2*order)
+            data_slice = poly_coarse_grain_time_slices(pt_pos, weights, xi, order, dist)
             data_slice = data_slice.reshape(domain.shape)
         else:
             if self.domain_neighbors is None:
@@ -262,14 +271,14 @@ class SRDataset(object):  # structures all data associated with a given sparse r
                     # experimental method using scipy.stats.gaussian_kde
                     particles = self.domain_neighbors[domain, t_shifted]
                     pt_pos = self.scaled_pts[particles, :, t_shifted] / self.cg_res
-                    weights = np.ones_like(particles, dtype=np.float)
+                    weights = np.ones_like(particles, dtype=np.float64)
                     obs_dim_ind = 0
                     for obs in cgp.obs_list:
                         if obs.rank == 0:
                             data = self.data_dict[obs.string][particles, 0, t_shifted]
                         else:
                             data = self.data_dict[obs.string][particles, obs_dims[obs_dim_ind], t_shifted]
-                        weights *= data.astype(np.float)
+                        weights *= data.astype(np.float64)
                         obs_dim_ind += obs.rank
                     sigma = self.scaled_sigma ** 2 / (self.cg_res ** 2)
                     # Check scipy version. If it's lower than 1.10, use inverse_covariance, otherwise use Cholesky
@@ -283,7 +292,7 @@ class SRDataset(object):  # structures all data associated with a given sparse r
                     xx, yy = np.mgrid[min_corner[0]:(max_corner[0] + 1), min_corner[1]:(max_corner[1] + 1)]
                     positions = np.vstack([(xx / self.cg_res).ravel(), (yy / self.cg_res).ravel()]).T
                     density = gaussian_kernel_estimate['double'](pt_pos, weights[:, None], positions, inv_cov,
-                                                                 np.float)
+                                                                 np.float64)
                     time_slice = np.reshape(density[:, 0], xx.shape)
 
                     data_slice[..., t] = time_slice / (self.cg_res ** 2)

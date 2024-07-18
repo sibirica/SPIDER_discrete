@@ -1,6 +1,7 @@
 import numpy as np
-from numba import jit, float64, uint64, prange, int64
+from numba import jit, float64, uint64, prange, int64, uint8
 from numba_kdtree import KDTree
+from math import gamma
 
 
 @jit(
@@ -181,3 +182,110 @@ def verlet_coarse_grain_time_slices(points: float64[:, :, :],
                                                          (points_[i, :, k + g] - xi_[j, :])) / 2) * values[i, k + g]
 
     return estimate * norm
+
+
+@jit(
+    signature_or_function="float64(float64, uint8)",
+    nopython=True,
+    cache=False,
+    fastmath=True,
+    parallel=False,
+    debug=False,
+    nogil=True,
+    boundscheck=False
+)
+def int_pow(x: float64, n: uint8) -> float64:
+    """
+    This function implements an integer power function.
+    :param x: the base. Float.
+    :param n: the exponent. uint64.
+    :return: x^n. Float.
+    """
+    r: float64 = 1
+    for i in range(n):
+        r *= x
+
+    return r
+
+
+@jit(
+    signature_or_function="float64[:](float64[:, :], float64[:], float64[:, :], uint8, float64)",
+    nopython=True,
+    cache=False,
+    fastmath=True,
+    parallel=True,
+    debug=False,
+    nogil=True,
+    boundscheck=False
+)
+def kd_poly_coarse_grain2d(points: float64[:, :],
+                           values: float64[:],
+                           xi: float64[:, :],
+                           order: uint8,
+                           distance: float64) -> float64[:]:
+    """
+    This function implements a polynomial coarse graining algorithm. Uses a KDTree to only consider nearby points.
+    Heavily inspired by the scipy implementation at https://github.com/scipy/scipy/blob/main/scipy/stats/_stats.pyx
+    Kernel shape is (a^2- r^2)^n for r < a, 0 otherwise.
+    :param points: the data points to estimate from in 2 dimensions. Shape (n, 2).
+    :param values: the multivariate values associated with the data points. (n,)
+    :param xi: the coordinates to evaluate the estimate at in 2 dimensions. Shape (m, 2).
+    :param order: the order of the polynomial to use (n in the formula). uint8.
+    :param distance: size of the kernel (a in the formula). Float.
+    :return: the coarse grained data at the coordinates xi. Shape (m,).
+    """
+    n: uint64 = points.shape[0]  # number of data points
+    d: uint64 = 2  # dimension of the data points
+    m: uint64 = xi.shape[0]  # number of evaluation points
+
+    points_: float64[n, d] = points / distance  # the scaled data points
+    leaf_size: uint64 = np.floor(np.log2(n))  # the leaf_size of the KDTree (log2(n) is a good heuristic)
+    tree = KDTree(points_, leafsize=leaf_size)  # the KDTree of the scaled data points
+
+    xi_: float64[m, d] = xi / distance  # the scaled evaluation points
+
+    estimate: float64[m] = np.zeros(m)  # the estimate at the evaluation points
+    norm: float64 = np.pi * distance * distance / (1 + order)  # the normalization factor of the polynomial kernel
+    for j in prange(m):
+        neighbors: uint64[:] = tree.query_radius(xi_[j, :], 1)[0]
+        for i in neighbors:
+            estimate[j] += values[i] * int_pow(
+                (1 - np.sum((points_[i, :] - xi_[j, :]) * (points_[i, :] - xi_[j, :]))),
+                order
+            )
+
+    return estimate / norm
+
+
+@jit(
+    signature_or_function="float64[:,:](float64[:, :, :], float64[:, :], float64[:, :], float64, float64)",
+    nopython=True,
+    cache=False,
+    fastmath=False,
+    parallel=False,
+    debug=False,
+    nogil=True,
+    boundscheck=True
+)
+def poly_coarse_grain_time_slices(points: float64[:, :, :],
+                                  values: float64[:, :],
+                                  xi: float64[:, :],
+                                  order: uint8,
+                                  distance: float64) -> float64[:, :]:
+    """
+    Applies the polynomial coarse graining algorithm to a time series.
+    :param points: the data points to estimate from in 2 dimensions. Shape (n, 2).
+    :param values: the multivariate values associated with the data points. (n,)
+    :param xi: the coordinates to evaluate the estimate at in 2 dimensions. Shape (m, 2).
+    :param order: the order of the polynomial to use (n in the formula). uint8.
+    :param distance: size of the kernel (a in the formula). Float.
+    :return: the coarse grained data at the coordinates xi. Shape (m,).
+    """
+    m: uint64 = xi.shape[0]  # number of evaluation points
+    t: uint64 = points.shape[2]  # number of time slices
+
+    estimate: float64[m, t] = np.zeros((m, t))  # the estimate at the evaluation points
+    for h in range(t):
+        estimate[:, h] = kd_poly_coarse_grain2d(points[:, :, h], values[:, h], xi[:, :], order, distance)
+
+    return estimate
