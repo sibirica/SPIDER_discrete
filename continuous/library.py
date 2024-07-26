@@ -102,6 +102,9 @@ class LibraryPrimitive(object):
         """
         return LibraryPrimitive(self.dorder.dx(), self.observable)
 
+    def index_canon(self, inds): ## CANONICALIZATION TO BE IMPLEMENTED - FOR NOW, RETURN IDENTITY
+        return inds
+
 
 class IndexedPrimitive(LibraryPrimitive):
     """
@@ -210,6 +213,10 @@ class IndexedPrimitive(LibraryPrimitive):
             let = self.dim_to_let[self.obs_dim]
             dimstring = f"_{let}"
         return f'{tstring}{xstring}{self.observable}{dimstring}'
+
+    def __hash__(self):  # it's nice to be able to use these in sets or dicts
+        #return hash(self.__repr__())
+        return hash(f'{self.observable}{self.obs_dim}')
 
     def __eq__(self, other: 'IndexedPrimitive') -> bool:
         """

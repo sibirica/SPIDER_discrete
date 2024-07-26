@@ -168,6 +168,8 @@ class LibraryPrimitive(object):
     def dx(self):
         return LibraryPrimitive(self.dorder.dx(), self.cgp)
 
+    def index_canon(self, inds): # FOR POLYMORPHIC COMPATIBILITY
+        return self.cgp.index_canon(inds)
 
 # (1) Evaluation will need some rework to account for repetitions both within derivatives and coarse-grained primitive
 class IndexedPrimitive(LibraryPrimitive):
@@ -207,6 +209,10 @@ class IndexedPrimitive(LibraryPrimitive):
             tstring = f"dt^{torder} "
         return f'{tstring}{xstring}{self.cgp.index_str(self.obs_dims, coord=True)}'
 
+    def __hash__(self):
+        #return hash(self.__repr__())
+        return hash(self.cgp.index_str(self.obs_dims, coord=True))
+        
     def __eq__(self, other):
         return (self.dimorders == other.dimorders and self.cgp == other.cgp
                 and self.obs_dims == other.obs_dims)

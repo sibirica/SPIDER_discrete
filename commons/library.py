@@ -90,6 +90,27 @@ class DerivativeOrder(CompPair):
         """
         return DerivativeOrder(self.torder, self.xorder + 1)
 
+@dataclass
+class Irrep(object): # data of (irreducible) representation
+    rank: int
+    symmetric: bool = False
+    antisymmetric: bool = False
+    trace_free: bool = False
+    
+    def __post_init__(self):
+        if self.antisymmetric:
+            self.trace_free = True
+    
+    def __repr__(self):
+        if self.symmetric:
+            suffix = "s"
+            if self.trace_free:
+                suffix += ",tf"
+        elif self.antisymmetric:
+            suffix = "a"
+        else:
+            suffix = ""
+        return f"Irrep({self.rank}{suffix})"
 
 @dataclass
 class Observable(object):
@@ -409,11 +430,6 @@ def test_valid_label(output_dict: Dict[int, Union[List[int], Tuple[int]]], obs_l
                 if not clist2.special_bigger(clist1):  # if (lexicographic) order decreases OR 'i' appears late
                     return False
     return True
-
-
-rho = Observable('rho', 0)
-v = Observable('v', 1)
-
 
 # n is the integer to partition up to, k is the length of partitions
 def partition(n: int, k: int) -> Generator[Tuple[int], None, None]:
