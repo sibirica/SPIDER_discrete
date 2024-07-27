@@ -931,8 +931,6 @@ def generate_terms_to(order: int,
     :return: List of all possible LibraryTerms whose complexity is less than or equal to order, that can be generated
     using the given observables.
     """
-    if observables is None:
-        observables = [rho, v]
     observables = sorted(observables, reverse=True)  # make sure ordering is reverse of canonicalization rules
     libterms = list()
     libterms.append(ConstantTerm())

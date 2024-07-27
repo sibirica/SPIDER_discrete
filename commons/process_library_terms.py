@@ -71,6 +71,9 @@ class Weight(object): # scalar-valued weight function
     def __repr__(self):
         return f"Weight({self.m}, {self.q}, {self.k}, {self.scale}, {self.dxs})"
 
+    def __hash__(self):
+        return hash(self.__repr__)
+
 class Metric(object):
     n_dimensions: int # number of dimensions of space
     tensor: np.ndarray = None
@@ -284,8 +287,7 @@ class AbstractDataset(object): # template for structure of all data associated w
             # first, make labeling canonical within each CGP
             if space_orders is None and obs_dims is None:
                 space_orders = [[0] * self.n_dimensions for i in term.obs_list]
-                # it was [None] * i.cgp.rank in discrete but not quite sure how it was supposed to work anyway 
-                canon_obs_dims = [[None] for i in term.obs_list] 
+                canon_obs_dims = [[None] * i.cgp.rank if hasattr(i, 'cgp') else i.observable.rank for i in term.obs_list] 
             else:
                 canon_obs_dims = []
                 for sub_list, prim in zip(obs_dims, term.obs_list):
@@ -364,6 +366,7 @@ class AbstractDataset(object): # template for structure of all data associated w
             rank = irrep
             for term in self.libs[irrep].terms:
                 column = []
+                pv_dict = dict()
                 for weight in self.weights:
                     for tensor_weight in self.tensor_weight_stacks[irrep, weight]:    
                         if self.metric_is_identity:
@@ -373,19 +376,17 @@ class AbstractDataset(object): # template for structure of all data associated w
                         #arr = self.make_tw_arr(term, weight, domain, by_parts, debug)
                         base_weight = tensor_weight.base_weight  # only allow FactorizedTensorWeight for simplicity
 
-
-                        # evaluate IndexedTerms & weights for each evaled_term_index
-                        # indices of arrays are (same indices as tensor of rank, same indices as domain)
-                        product_value_array = np.zeros(shape=[n_spatial_dims]*rank+list(domain.shape))
-                        # (not term_value_array)
-                        #weight_value_array = np.zeros(shape=term_value_array.shape)
-
                         for eti in evaled_term_indices:
                             # note that we have once again carefully taken integration by parts outside of the domain loop
                             for (indexed_term, new_weight) in self.get_tw_pairs(term, base_weight, eti, by_parts, debug):
                                 for domain in domains: 
-                                    product_term_array[*eti, ...] = self.eval_term(self, indexed_term, domain, debug) *
-                                                            new_weight.get_weight_array(domain.shape)
+                                    # evaluate IndexedTerms & weights for each evaled_term_index
+                                    # indices of arrays are (same indices as tensor of rank, same indices as domain)
+                                    pv_dict[tensor_weight, domain] = np.zeros(shape=[n_spatial_dims]*rank+list(domain.shape))
+                                    # (not term_value_array)
+                                    #weight_value_array = np.zeros(shape=term_value_array.shape)
+                                    pv_dict[tensor_weight, domain][*eti, ...] += 
+                                        self.eval_term(self, indexed_term, domain, debug) * new_weight.get_weight_array(domain.shape)
 
                         # if tensor_weight.base_weight is None:
                         #    for inds in tensor_weight.nonzero_indices:
@@ -395,8 +396,9 @@ class AbstractDataset(object): # template for structure of all data associated w
                         #base_weight_arr = tensor_weight.base_weight.get_weight_array(domain.shape)
 
                         # fair question: should we integrate and then multiply by the tensor or multiply and then integrate?
-                        arr = self.shortcut_trace(product_value_array, tensor_weight.tensor)
-                        column.append(int_arr(arr, self.dxs)) # integrate the product array
+                        for domain in domains:
+                            arr = self.shortcut_trace(pv_dict[tensor_weight, domain], tensor_weight.tensor)
+                            column.append(int_arr(arr, self.dxs)) # integrate the product array
                 cols_list.append(column)
         return np.ndarray(cols_list).transpose # convert to numpy array
         

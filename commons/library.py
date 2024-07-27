@@ -3,7 +3,20 @@ from typing import List, Dict, Union, Tuple, Iterable, Generator
 from itertools import permutations
 
 import numpy as np
+from typing import Union
 
+num_to_let = {0: 'i', 1: 'j', 2: 'k', 3: 'l', 4: 'm', 5: 'n', 6: 'p'}
+let_to_num = {v: k for k, v in num_to_let.items()}  # inverted dict
+dim_to_let = {0: 'x', 1: 'y', 2: 'z'}  # Dimensions to letter dictionary
+
+def nested_num_to_let(num_list: List[List[int]]) -> List[List[str]]: ## NOTE: may not be necessary
+    """
+    Transforms a list of lists of int indexes into the respective list of lists of letter indexes.
+
+    :param num_list: List of lists of int indexes.
+    :return: Corresponding list of lists of str indexes.
+    """
+    return [[num_to_let[i] for i in li] for li in num_list]
 
 @dataclass(order=True)
 class CompPair(object):
@@ -112,22 +125,15 @@ class Irrep(object): # data of (irreducible) representation
             suffix = ""
         return f"Irrep({self.rank}{suffix})"
 
-@dataclass
-class Observable(object):
+class GeneralizedObservable:
     """
-    Data class object that stores a string representation of an observable as well as its rank. For documentation
-    purposes, this class will always be refered to as 'Observable' (capitalized), unless stated otherwise. Furthermore,
-    the term 'observable' usually does NOT refer to this class, but rather to a LibraryPrimitive or IndexedPrimitive
-    object.
-
-    :attribute string: String representation of the Observable.
-    :attribute rank: Tensor rank of the Observable.
+    Observable generalization - can be regular Observable or CGP.
     """
     string: str  # String representing the Observable.
-    rank: int  # Derivative rank of the Observable.
-
-    def __repr__(self):
-        return self.string
+    rank: Union[int, Irrep]  # Rank of the Observable.
+    complexity: int = field(init=False)
+    indexed: bool = False # are any indices assigned
+    evaluated: bool = False # are indices evaluated (True, i.e. x/y/z) or abstract (False, i.e. Einstein notation)
 
     # For sorting: convention is in ascending order of name
 
@@ -149,6 +155,22 @@ class Observable(object):
     def __ne__(self, other):
         return not self.__eq__(other)
 
+@dataclass
+class Observable(GeneralizedObservable):
+    """
+    Data class object that stores a string representation of an observable as well as its rank. For documentation
+    purposes, this class will always be refered to as 'Observable' (capitalized), unless stated otherwise. Furthermore,
+    the term 'observable' usually does NOT refer to this class, but rather to a LibraryPrimitive or IndexedPrimitive
+    object.
+
+    :attribute string: String representation of the Observable.
+    :attribute rank: Tensor rank of the Observable.
+    """
+    indices: List[int] # indices of the dimensions, e.g. A_ij or A_xy -> [0, 1]
+
+    def __repr__(self):
+        char_list = [dim_to_let(index) if self.indexed else num_to_let(index) for index in self.indices]
+        return f"{self.string}_{''.join(char_list)}"
 
 def create_derivative_string(torder: int, xorder: int) -> (str, str):
     """
@@ -171,7 +193,6 @@ def create_derivative_string(torder: int, xorder: int) -> (str, str):
         xstring = "dx "
     else:
         xstring = f"dx^{xorder} "
-
     return tstring, xstring
 
 
@@ -218,20 +239,6 @@ def flatten(t: List[Union[list, tuple]]) -> list:
     :return: Flattened list.
     """
     return [item for sublist in t for item in sublist]
-
-
-num_to_let_dict: Dict[int, str] = {0: 'i', 1: 'j', 2: 'k', 3: 'l', 4: 'm', 5: 'n', 6: 'p'}
-let_to_num_dict: Dict[str, int] = {v: k for k, v in num_to_let_dict.items()}  # inverted dict
-
-
-def num_to_let(num_list: List[List[int]]) -> List[List[str]]:
-    """
-    Transforms a list of lists of int indexes into the respective list of lists of letter indexes.
-
-    :param num_list: List of lists of int indexes.
-    :return: Corresponding list of lists of str indexes.
-    """
-    return [[num_to_let_dict[i] for i in li] for li in num_list]
 
 
 def canonicalize_indices(indices: Union[List[int], Tuple[int]]) -> Dict[int, int]:
@@ -374,7 +381,7 @@ def place_indices(*rank_array) -> Generator[Dict[int, Tuple[int]], None, None]:
 # Todo: Add hinting after moving LibraryTensor to commons.
 def list_labels(tensor) -> List[Dict[int, Tuple[int]]]:
     """
-    Generates a list with all valid labels dictionaries for a given LibraryTensor object.
+    Generates a list with all valid label dictionaries for a given LibraryTensor object.
     See test_valid_label() for the definition of a valid label. For more information on labels and indexes see:
     https://github.com/sibirica/SPIDER_discrete/wiki/Index-Lists-and-Labels
 

@@ -7,11 +7,8 @@ import numpy as np
 
 from commons.library import *
 
-dim_to_let = {0: 'x', 1: 'y', 2: 'z'}
-
-
 # as usual: this version of the code will not solve the general problem of observables with rank>2 
-class CoarseGrainedPrimitive(object):  # represents rho[product of obs_list]
+class CoarseGrainedPrimitive(GeneralizedObservable):  # represents rho[product of obs_list]
     def __init__(self, obs_list):  # obs_list should be sorted to maintain canonical order
         self.obs_list = obs_list
         self.obs_ranks = [obs.rank for obs in obs_list]  # don't know if we'll need this
@@ -37,7 +34,7 @@ class CoarseGrainedPrimitive(object):  # represents rho[product of obs_list]
                 if coord:  # x/y/z
                     let = dim_to_let[obs_dims[dim_ind]]
                 else:  # i/j/k
-                    let = num_to_let_dict[obs_dims[dim_ind]]
+                    let = num_to_let[obs_dims[dim_ind]]
                 indexed_str += f"{str(obs)}_{let} * "
                 dim_ind += 1
         # for obs, dims in zip(self.obs_list, obs_dims):
@@ -58,7 +55,7 @@ class CoarseGrainedPrimitive(object):  # represents rho[product of obs_list]
                 return a < b
         return len(self.obs_list) < len(other.obs_list)
 
-    # TODO: This may be redundant. I believe python does this proccess internally.
+    # TODO: This may be redundant. I believe Python does this process internally.
     def __gt__(self, other):
         if not isinstance(other, CoarseGrainedPrimitive):
             raise TypeError("Second argument is not a CoarseGrainedPrimitive.")
@@ -71,12 +68,6 @@ class CoarseGrainedPrimitive(object):  # represents rho[product of obs_list]
 
     def __ne__(self, other):
         return not self.__eq__(other)
-
-    # def __mul__(self, other):
-    #    if isinstance(other, CoarseGrainedPrimitive):
-    #        return CoarseGrainedPrimitive(self.obs_list + other.obs_list)
-    #    else:
-    #        raise TypeError(f"Cannot multiply {type(self)}, {type(other)}")
 
     def index_canon(self, inds):
         if len(inds) == 0:
@@ -546,7 +537,7 @@ def label_repr(prim, ind1, ind2):
     if xorder == 0:
         xstring = ""
     else:
-        ind1 = [num_to_let_dict[i] for i in ind1]
+        ind1 = [num_to_let[i] for i in ind1]
         ind1 = compress(ind1)
         xlist = [f"d{letter} " for letter in ind1]
         xstring = reduce(add, xlist)
@@ -563,7 +554,7 @@ def yield_tuples_up_to(bounds):
             yield (i,) + tup
 
 
-def yield_legal_tuples(bounds):
+def yield_legal_tuples(bounds): # allocate observables & derivatives up to the available bounds
     # print("bounds:", bounds)
     if sum(bounds[:-2]) > 0:  # if there are still other observables left
         # print("ORDERS:", bounds)
@@ -573,10 +564,8 @@ def yield_legal_tuples(bounds):
         yield bounds
 
 
-# (4) SIGNIFICANT CHANGES
-# check!
-# def raw_library_tensors(observables, obs_orders, nt, nx, max_order=None, zeroidx=0):
-def raw_library_tensors(observables, orders, max_order=None, zeroidx=0):
+# return LibraryTensors with fixed allocation of complexity
+def raw_library_tensors(observables, orders, max_order=None, zeroidx=0): 
     # basically: iteratively take any possible subset from [obs_orders; nrho; nt; nx] 
     # as long as it's lexicographically less than previous order; take at least one of first observable
 
@@ -595,7 +584,7 @@ def raw_library_tensors(observables, orders, max_order=None, zeroidx=0):
 
     # orders = obs_orders + [nt, nx]
     # print("ORDERS: ", orders)
-    for tup in yield_legal_tuples(orders[:n] + [0] + orders[n + 1:]):  # ignore the rho index
+    for tup in yield_legal_tuples(orders[:n] + [0] + orders[n + 1:]):  # ignore the rho index which is deducted automatically
         orders_copy = orders.copy()
         popped_orders = list(tup)
         # print("Popped: ", popped_orders)
@@ -621,15 +610,8 @@ def raw_library_tensors(observables, orders, max_order=None, zeroidx=0):
             for term2 in raw_library_tensors(observables, orders_copy, po_cl, zeroidx):
                 yield term2 * term1  # reverse order here to match canonicalization rules!
 
-
-rho = Observable('rho', 0)
-v = Observable('v', 1)
-
-
 def generate_terms_to(order, observables=None, max_observables=999, max_rho=999):
     # note: this ignores the fact that rho operator adds complexity, but you can filter by complexity later
-    if observables is None:
-        observables = [rho, v]
     observables = sorted(observables, reverse=True)  # ordering opposite of canonicalization rules for now
     libterms = list()
     libterms.append(ConstantTerm())
@@ -680,7 +662,7 @@ def get_valid_reorderings(observables, obs_index_list):
 
 
 def get_library_terms(tensor, index_list):
-    # distribute indexes in CGP according to all permutations that are canonical (with only those indices)
+    # distribute indices in CGP according to all permutations that are canonical (with only those indices)
     der_index_list = index_list[0::2]
     obs_index_list = index_list[1::2]
     for perm_list in get_valid_reorderings(tensor.obs_list, obs_index_list):
