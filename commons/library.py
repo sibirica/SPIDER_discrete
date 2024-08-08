@@ -1,4 +1,4 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, KW_ONLY
 from typing import List, Dict, Union, Tuple, Iterable, Generator
 from itertools import permutations
 
@@ -103,27 +103,30 @@ class DerivativeOrder(CompPair):
         """
         return DerivativeOrder(self.torder, self.xorder + 1)
 
+# add match statements
+# EinSumExpr
+
 @dataclass
-class Irrep(object): # data of (irreducible) representation
+class SymmetryRep:
+    _: KW_ONLY
     rank: int
-    symmetric: bool = False
-    antisymmetric: bool = False
-    trace_free: bool = False
-    
-    def __post_init__(self):
-        if self.antisymmetric:
-            self.trace_free = True
-    
+
+@dataclass
+class Antisymmetric(SymmetryRep):
     def __repr__(self):
-        if self.symmetric:
-            suffix = "s"
-            if self.trace_free:
-                suffix += ",tf"
-        elif self.antisymmetric:
-            suffix = "a"
-        else:
-            suffix = ""
-        return f"Irrep({self.rank}{suffix})"
+        return f"Antisymmetric rank {self.rank}"
+
+@dataclass
+class SymmetricTraceFree(SymmetryRep):
+    def __repr__(self):
+        return f"Symmetric trace-free rank {self.rank}"
+
+@dataclass
+class FullRank(SymmetryRep):
+    def __repr__(self):
+        return f"Rank {self.rank}"
+
+Irrep = Antisymmetric | SymmetricTraceFree | FullRank
 
 class GeneralizedObservable:
     """

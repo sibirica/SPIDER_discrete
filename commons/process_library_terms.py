@@ -121,31 +121,23 @@ class TensorWeightStack: # stack of TensorWeights to span desired space
 
     @staticmethod
     def make_stack(base_weight, n_dimensions, irrep): # choose TWS constructor based on irrep
-        if isinstance(irrep, int):
-            rank = irrep
-            trace_free = False
-            symmetric = False
-            antisymmetric = False
-        else:
-            rank = irrep.rank
-            if rank not in (0, 1, 2):
-                warn(RuntimeWarning(f"Rank {irrep.rank} irreps may not be supported!"))   
-            trace_free = irrep.trace_free
-            symmetric = irrep.symmetric
-            antisymmetric = irrep.antisymmetric
-        if rank == 0:
-            return scalar_stack(base_weight)
-        elif rank == 1:
-            return ones_vector_stack(base_weight, n_dimensions) # the general one should probably work fine too
-        elif trace_free == symmetric == antisymmetric == False:
-            return full_stack(base_weight, n_dimensions, rank)
-        elif rank == 2 and antisymmetric:
-            return anti_rank2_stack(base_weight, n_dimensions)
-        elif rank == 2 and symmetric and trace_free:
-            return stf_rank2(base_weight, n_dimensions)
-        else:
-            warn(RuntimeWarning(f"Invalid irrep - please check inputs"))   
-            return None        
+        match irrep:
+            case int():
+                return full_stack(base_weight, n_dimensions, irrep)
+            case FullRank():
+                return full_stack(base_weight, n_dimensions, irrep.rank)
+            case Antisymmetric(rank=2):
+                return anti_rank2_stack(base_weight, n_dimensions)
+            case SymmetricTraceFree(rank=2):
+                return stf_rank2(base_weight, n_dimensions)
+            case _:
+                if irrep.rank == 0:
+                    return scalar_stack(base_weight)
+                if irrep.rank == 1:
+                    return ones_vector_stack(base_weight, n_dimensions) # the general one should probably work fine too
+                else:
+                    warn(RuntimeWarning(f"Rank {irrep.rank} irreps may not be supported!")) 
+                    return None        
     
     @staticmethod
     def scalar_stack(base_weight):
@@ -360,7 +352,7 @@ class AbstractDataset(object): # template for structure of all data associated w
         #for tensor(term, tensor_weight, domain) in self.tuple_iterator(irrep):
         cols_list = []
         n_spatial_dims = self.n_dimensions-1
-        if isinstance(irrep, Irrep):
+        if isinstance(irrep, SymmetryRep):
             rank = irrep.rank
         else:
             rank = irrep
