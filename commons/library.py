@@ -1,465 +1,344 @@
-from dataclasses import dataclass, field, KW_ONLY
+from __future__ import annotations
+
+from dataclasses import dataclass, field, replace, KW_ONLY
 from typing import List, Dict, Union, Tuple, Iterable, Generator
 from itertools import permutations
+from functools import cached_property
+from collections import defaultdict, Counter
 
 import numpy as np
 from typing import Union
 
-num_to_let = {0: 'i', 1: 'j', 2: 'k', 3: 'l', 4: 'm', 5: 'n', 6: 'p'}
-let_to_num = {v: k for k, v in num_to_let.items()}  # inverted dict
-dim_to_let = {0: 'x', 1: 'y', 2: 'z'}  # Dimensions to letter dictionary
+from z3_base import *
 
-def nested_num_to_let(num_list: List[List[int]]) -> List[List[str]]: ## NOTE: may not be necessary
-    """
-    Transforms a list of lists of int indexes into the respective list of lists of letter indexes.
+# increment all indices (Einstein or literal) in an expression
+def inc_inds(expr: EinSumExpr[VarIndex | LiteralIndex]):
+    return expr.map(expr_map=inc_inds, 
+                    index_map=lambda ind: dataclasses.replace(ind, value=ind.value + 1))
 
-    :param num_list: List of lists of int indexes.
-    :return: Corresponding list of lists of str indexes.
-    """
-    return [[num_to_let[i] for i in li] for li in num_list]
+# decrement all indices (Einstein or literal) in an expression
+def dec_inds(expr: EinSumExpr[VarIndex | LiteralIndex]):
+    return expr.map(expr_map=dec_inds, 
+                    index_map=lambda ind: dataclasses.replace(ind, value=ind.value - 1))
 
-@dataclass(order=True)
-class CompPair(object):
-    """
-    Data class used to compare integer tuples of space and time derivative orders.
+def dt(expr: EinSumExpr[VarIndex]): 
+    match expr:
+        case DerivativeOrder():
+            return DerivativeOrder(self.torder + 1, self.x_derivatives)
+        case LibraryPrime():
 
-    :attribute torder: time derivative order.
-    :attribute xorder: space derivative order.
-    :attribute complexity: term complexity.
-    """
-    torder: int
-    xorder: int
-    complexity: int = field(init=False)
+        case LibraryTerm():
 
-    def __post_init__(self):
-        self.complexity = self.torder + self.xorder
+        case Equation():
+        # note that derivative is an Equation object in general
+            components = [coeff * term.dt() for term, coeff in zip(self.term_list, self.coeffs)
+                          if not isinstance(term, ConstantTerm)]
+            if not components:
+                return Equation([], []) #None - might need an is_empty for Equation?
+            return reduce(add, components)#.canonicalize()
 
-    def __repr__(self):
-        return f'({self.torder}, {self.xorder})'
+# construct term or equation by taking x derivative with respect to new i index, shifting others up by 1
+# NOT GUARANTEED TO BE CANONICAL
+def dx(expr: EinSumExpr[VarIndex]): 
+    dx_expr = dx_helper(inced)
 
+# take x derivative without worrying about indices
+def dx_helper(expr: EinSumExpr[VarIndex]):
+    match expr:
+        case DerivativeOrder():
+            return DerivativeOrder(expr.torder, tuple([VarIndex(0)]+expr.x_derivatives))
+        case LibraryPrime():
+
+        case LibraryTerm():
+
+        case Equation():
+            components = [coeff * term.dx_helper() for term, coeff in zip(self.term_list, self.coeffs)
+                      if not isinstance(term, ConstantTerm)]
+            if not components:
+                return Equation([], [])
+            return reduce(add, components)#.canonicalize()
+
+# contract term or equation along i and j indices, setting j to i (if i<j) and moving others down by 1
+# NOT GUARANTEED TO BE CANONICAL
+def contract(expr: EinSumExpr[VarIndex], i: VarIndex, j: VarIndex):
 
 @dataclass
-class CompList(object):
-    """
-    Data class used to compare lists of integer, which don't need to be of equal length.
-
-    :attribute in_list: Index list, a list of integers.
-    """
-    in_list: List[int]
-
-    def __ge__(self, other):
-        """
-        Explicitly defines the >= (greater than or equals) operation between two CompList objects.
-        Implicitly defines the <= (less than or equals) operation between two CompList objects.
-        self is deemed greater than or equals to other if any of the following are true. All elements that share an
-        index on self.in_list and other.in_list are the same. The first non-equal pair
-        (self.in_list[i], other.in_list[i]) satisfies self.in_list[i] > other.in_list[i].
-        NOTE: may be used to calculate every relational operator.
-
-        :param other: CompList object to be compared.
-        :return: Comparison result.
-        """
-        for x, y in zip(self.in_list, other.in_list):
-            if x > y:
-                return True
-            elif x < y:
-                return False
-        return True
-
-    def special_bigger(self, other):
-        """
-        A quicker method to compare two CompList objects. Tests if one of the lists contains a zero and the other
-        does not.
-
-        :param other: CompList object to be compared.
-        :return: Test result.
-        """
-        if 0 in self.in_list and 0 not in other.in_list:
-            return False
-        elif 0 in other.in_list and 0 not in self.in_list:
-            return True
-        else:
-            return self >= other
-
-
-class DerivativeOrder(CompPair):
+class DerivativeOrder[T](EinSumExpr):
     """
     Object to store and manipulate derivative orders.
     """
+    torder: int = 0
+    x_derivatives: Tuple[T] = None
+    is_commutative: bool = True
 
-    def dt(self) -> 'DerivativeOrder':
-        """
-        Increase order of time derivative by one.
+    @cached_property
+    def complexity(self):
+        return self.torder+self.xorder
 
-        :return: A Derivative Order object with the same spacial order and one plus its temporal order.
-        """
-        return DerivativeOrder(self.torder + 1, self.xorder)
+    @cached_property
+    def xorder(self):    
+        return len(self.x_derivatives)
 
-    def dx(self) -> 'DerivativeOrder':
-        """
-        Increase order of space derivative by one.
+    @classmethod
+    def blank_derivative(cls, torder, xorder):
+    # make an abstract x derivative with given orders 
+        x_derivatives = tuple([IndexHole()]*xorder)
+        return DerivativeOrder[IndexHole](torder, x_derivatives)
 
-        :return: A Derivative Order object with the same temporal order and one plus its spacial order.
-        """
-        return DerivativeOrder(self.torder, self.xorder + 1)
+    @classmethod
+    def indexed_derivative(cls, torder, xorder):
+        x_derivatives = tuple([VarIndex[i] for i in range(xorder)])
+        return DerivativeOrder[VarIndex](torder, x_derivatives)
 
-# add match statements
-# EinSumExpr
+    def __repr__(self):
+        if self.torder == 0:
+            tstring = ""
+        elif self.torder == 1:
+            tstring = "∂t "
+        else:
+            tstring = f"∂t^{self.torder} "
+        xstring = ""
+        if self.xorder != 0:
+            ind_counter = Counter(self.x_derivatives)
+            for ind in sorted(ind_counter.keys()):
+                count = ind_counter[ind]
+                if count == 1:
+                    xstring += f"∂{ind} "
+                else:
+                    xstring += f"∂{ind}^{count} "
+        return tstring + xstring[:-1] # get rid of the trailing space
+        #return f'DerivativeOrder({self.torder}, {self.xorder})'
 
-@dataclass
-class SymmetryRep:
+    def __lt__(self, other):
+        if not isinstance(other, Observable):
+            raise TypeError(f"Operation not supported between instances of '{type(self)}' and '{type(other)}'")
+        return self.torder < other.torder if self.torder != other.torder \
+            else self.x_derivatives < other.x_derivatives
+
+    def __repr__(self):
+        index_string = ''.join([repr(idx) for idx in self.all_indices()])
+        return f"{self.string}" if index_string == "" else f"{self.string}_{index_string}"
+
+    def sub_exprs(self) -> Iterable[T]:
+        return []
+
+    def own_indices(self) -> Iterable[T]:
+        return tuple([IndexHole()]*self.get_rank()) if self.indices is None  \
+               else self.indices
+
+    def map[T2](self, *, 
+                expr_map: Callable[[EinSumExpr[T]], EinSumExpr[T2]] = lambda x: x,
+                index_map: Callable[[T], T2] = lambda x: x) -> EinSumExpr[T2]:
+        """ Constructs a copy of self replacing (direct) child expressions according to expr_map 
+            and (direct) child indices according to index_map"""
+        return replace(self, x_derivatives=tuple([index_map(index) for index in self.own_indices()]))
+
+@dataclass(frozen=True)
+class Observable[T](EinSumExpr):
+    """
+    Data class object that stores a string representation of an observable as well as its rank. For documentation
+    purposes, this class will always be refered to as 'Observable' (capitalized), unless stated otherwise. Furthermore,
+    the term 'observable' usually does NOT refer to this class, but rather to a LibraryPrimitive or IndexedPrimitive
+    object.
+    """
     _: KW_ONLY
-    rank: int
-
-@dataclass
-class Antisymmetric(SymmetryRep):
-    def __repr__(self):
-        return f"Antisymmetric rank {self.rank}"
-
-@dataclass
-class SymmetricTraceFree(SymmetryRep):
-    def __repr__(self):
-        return f"Symmetric trace-free rank {self.rank}"
-
-@dataclass
-class FullRank(SymmetryRep):
-    def __repr__(self):
-        return f"Rank {self.rank}"
-
-Irrep = Antisymmetric | SymmetricTraceFree | FullRank
-
-class GeneralizedObservable:
-    """
-    Observable generalization - can be regular Observable or CGP.
-    """
     string: str  # String representing the Observable.
-    rank: Union[int, Irrep]  # Rank of the Observable.
-    complexity: int = field(init=False)
-    indexed: bool = False # are any indices assigned
-    evaluated: bool = False # are indices evaluated (True, i.e. x/y/z) or abstract (False, i.e. Einstein notation)
+    indices: Tuple[T] = None
+    is_commutative: bool = False
+
+    @cached_property
+    def complexity(self):
+        return self.get_rank()
 
     # For sorting: convention is in ascending order of name
 
     def __lt__(self, other):
         if not isinstance(other, Observable):
             raise TypeError(f"Operation not supported between instances of '{type(self)}' and '{type(other)}'")
-        return self.string < other.string
+        return self.string < other.string if self.string != other.string \
+            else tuple(self.all_indices()) < tuple(other.all_indices())
 
-    def __gt__(self, other):
-        if not isinstance(other, Observable):
-            raise TypeError(f"Operation not supported between instances of '{type(self)}' and '{type(other)}'")
-        return other.__lt__(self)
-
-    def __eq__(self, other):
-        if not isinstance(other, Observable):
-            raise TypeError(f"Operation not supported between instances of '{type(self)}' and '{type(other)}'")
-        return self.string == other.string
-
-    def __ne__(self, other):
-        return not self.__eq__(other)
-
-@dataclass
-class Observable(GeneralizedObservable):
-    """
-    Data class object that stores a string representation of an observable as well as its rank. For documentation
-    purposes, this class will always be refered to as 'Observable' (capitalized), unless stated otherwise. Furthermore,
-    the term 'observable' usually does NOT refer to this class, but rather to a LibraryPrimitive or IndexedPrimitive
-    object.
-
-    :attribute string: String representation of the Observable.
-    :attribute rank: Tensor rank of the Observable.
-    """
-    indices: List[int] # indices of the dimensions, e.g. A_ij or A_xy -> [0, 1]
 
     def __repr__(self):
-        char_list = [dim_to_let(index) if self.indexed else num_to_let(index) for index in self.indices]
-        return f"{self.string}_{''.join(char_list)}"
+        index_string = ''.join([repr(idx) for idx in self.all_indices()])
+        return f"{self.string}" if index_string == "" else f"{self.string}_{index_string}"
 
-def create_derivative_string(torder: int, xorder: int) -> (str, str):
-    """
-    Creates a derivative string given a temporal order and a spatial order.
+    def sub_exprs(self) -> Iterable[T]:
+        return []
 
-    :param torder: Temporal derivative order.
-    :param xorder: Spatial Derivative Order.
-    :return: Time derivative string, Spatial derivative string
-    """
+    def own_indices(self) -> Iterable[T]:
+        return tuple([IndexHole()]*self.get_rank()) if self.indices is None  \
+               else self.indices
 
-    if torder == 0:
-        tstring = ""
-    elif torder == 1:
-        tstring = "dt "
-    else:
-        tstring = f"dt^{torder} "
-    if xorder == 0:
-        xstring = ""
-    elif xorder == 1:
-        xstring = "dx "
-    else:
-        xstring = f"dx^{xorder} "
-    return tstring, xstring
+    def map[T2](self, *, 
+                expr_map: Callable[[EinSumExpr[T]], EinSumExpr[T2]] = lambda x: x,
+                index_map: Callable[[T], T2] = lambda x: x) -> EinSumExpr[T2]:
+        """ Constructs a copy of self replacing (direct) child expressions according to expr_map 
+            and (direct) child indices according to index_map"""
+        return replace(self, indices=tuple([index_map(index) for index in self.own_indices()]))
 
+@dataclass(frozen=True)
+class ConstantTerm(Observable):
+    """ Short-hand for constant term = 1 """
 
-def labels_to_index_list(labels: Dict[int, Union[List[int], Tuple[int]]], n: int) -> List[List[int]]:
-    """
-    Transform a labels representation of the indexes of a LibraryTerm to its corresponding index_list representation.
-    https://github.com/sibirica/SPIDER_discrete/wiki/Index-Lists-and-Labels
+    rank: int = 0
 
-    :param labels: Dictionary representation of the indexes of a LibraryTerm
-    :param n: Number of observables.
-    :return: The corresponding index_list.
-    """
-    index_list = [list() for _ in range(2 * n)]
-    for key in sorted(labels.keys()):
-        for a in labels[key]:
-            index_list[a].append(key)
-    return index_list
+    def __repr__(self):
+        return "1"
 
+    def dx(self):
+        return 0
 
-def index_list_to_labels(index_list: List[List[int]]) -> Dict[int, List[int]]:
-    """
-    Transforms an index_list representation of the indexes of a LibraryTerm to its corresponding labels representation.
-    https://github.com/sibirica/SPIDER_discrete/wiki/Index-Lists-and-Labels
+    def dt(self):
+        return 0
 
-    :param index_list: List representation of the indexes of a LibraryTerm
-    :return: The corresponding labels dictionary.
-    """
-    labels = dict()
-    for i, li in enumerate(index_list):
-        for ind in li:
-            if ind in labels.keys():
-                labels[ind].append(i)
-            else:
-                labels[ind] = [i]
-    return labels
+    def __mul__(self, other):
+        return other
 
+    def __rmul__(self, other):
+        return other
 
-def flatten(t: List[Union[list, tuple]]) -> list:
-    """
-    Removes one level of nesting from a List where every item is also a List or Tuple.
-    E.g. flatten([[1, 2], [0, 3], [1, 1], (2, 0)]) returns [1, 2, 0, 3, 1, 1, 2, 0].
+# NOTE: HIGHER-RANK TERMS IN SUM NOT GUARANTEED TO BE CANONICAL - CANONICALIZE WHEN SAMPLING
+class Equation[T, Derivand]:  # can represent equation (expression = 0) OR expression
+    def __init__(self, term_list, coeffs):  # terms are LibraryTerms, coeffs are real numbers
+        content = zip(term_list, coeffs)
+        coeffs = defaultdict(0)
+        for term, coeff in content:
+            coeffs[term] += coeff
+        # remove terms with 0 coefficient
+        for term in content.keys():
+            if coeffs[term] == 0:
+                del coeffs[term]
+        # note that sorting guarantees canonicalization in equation term order
+        self.term_list = sorted(coeffs.keys())
+        self.coeffs = [coeffs[term] for term in self.term_list]
+        self.rank = term_list[0].rank
+        self.complexity = sum([term.complexity for term in term_list])  # another choice is simply the number of terms
 
-    :param t: Nested list.
-    :return: Flattened list.
-    """
-    return [item for sublist in t for item in sublist]
-
-
-def canonicalize_indices(indices: Union[List[int], Tuple[int]]) -> Dict[int, int]:
-    """
-    Given a flattened list of indices, returns a dictionary that, when applied to every item in that list, canonicalizes
-    it.
-
-    :param indices: List of indices.
-    :return: Dictionary containing canonicalization rules for the input index list.
-    """
-    curr_ind = 1
-    subs_dict = {0: 0}
-    for num in indices:
-        if num not in subs_dict.keys():
-            subs_dict[num] = curr_ind
-            curr_ind += 1
-    return subs_dict
-
-
-def is_canonical(indices: Union[List[int], Tuple[int]]) -> bool:
-    """
-    Tests if a sequence of indices is in canonical order.
-
-    :param indices: Sequence of indices
-    :return: True if indices are canonical, False otherwise.
-    """
-    subs_dict = canonicalize_indices(indices)
-    for key in subs_dict:
-        if subs_dict[key] != key:
-            return False
-    return True
-
-
-def get_isomorphic_terms(obs_list: list, start_order: Iterable = None) -> Generator[List[int], None, None]:
-    """
-    Generator that yields all permutations of the obs_list that leave the term unchanged. For example, if a LibraryTerm
-    contains two observables that are exactly the same, swapping their order would yield the exact same library term.
-
-    :param obs_list: List of observables (LibraryTerms).
-    :param start_order: For internal use, generates new permutations given a starting permutation.
-    :return: Generator of all isomorphic permutations.
-    """
-    if start_order is None:
-        start_order = list(range(len(obs_list)))
-    if len(obs_list) == 0:
-        yield []
-        return
-    reps = 1
-    prev = obs_list[0]
-    while reps < len(obs_list) and prev == obs_list[reps]:
-        reps += 1
-    for new_list in get_isomorphic_terms(obs_list[reps:], start_order[reps:]):
-        for perm in permutations(start_order[:reps]):
-            yield list(perm) + new_list
-
-
-def compress(labels: List[str]) -> List[str]:
-    """
-    Re-writes an index replacing two repeated terms by the term squared. E.g. ['i','i'] -> ['i^2'].
-    For more info on index lists see:
-    https://github.com/sibirica/SPIDER_discrete/wiki/Index-Lists-and-Labels
-
-
-    :param labels: List of index strings.
-    :return: Compressed list of index strings.
-    """
-    local_copy = []
-    skip = False
-    for i in range(len(labels)):
-        if i < len(labels) - 1 and labels[i] == labels[i + 1]:
-            local_copy.append(labels[i] + '^2')
-            skip = True
-        elif not skip:
-            local_copy.append(labels[i])
+    def __add__(self, other):
+        if isinstance(other, Equation):
+            return Equation(self.term_list + other.term_list, self.coeffs + other.coeffs)
         else:
-            skip = False
-    return local_copy
+            raise TypeError(f"Second argument {other}) is not an equation.")
 
+    def __rmul__(self, other):
+        if isinstance(other, EinSumExpr): # multiplication by term
+            return Equation([(other * term).canonicalize() for term in self.term_list], self.coeffs)
+        else:  # multiplication by number
+            return Equation(self.term_list, [other * c for c in self.coeffs])
 
-# make a dictionary of how paired indices are placed
-def place_pairs(*rank_array,
-                min_ind2: int = 0,
-                curr_ind: int = 1,
-                start: int = 0,
-                answer_dict=None) -> Generator[Dict[int, Tuple[int]], None, None]:
-    """
-    Creates a generator that yields all possible dictionaries of how paired indices are places. For more info on labels
-    see:
-    https://github.com/sibirica/SPIDER_discrete/wiki/Index-Lists-and-Labels
+    #def __mul__(self, other):
+    #    return self.__rmul__(other)
 
-    :param rank_array: A list with 2n elements containing information about n Observable objects. The list stores each
-    Observable 's spatial derivative order and tensor rank.
-    :param min_ind2: For internal use on recursion.
-    :param curr_ind: For internal use on recursion.
-    :param start: For internal use on recursion.
-    :param answer_dict: For internal use on recursion.
-    :return: Generator of labels dictionaries of paired indices.
-    """
-    if answer_dict is None:
-        answer_dict = dict()
-    while rank_array[start] <= 0:
-        start += 1
-        min_ind2 = 0
-        if start >= len(rank_array):
-            yield answer_dict
-            return
-    ind1 = start
-    for ind2 in range(min_ind2, len(rank_array)):
-        if (ind1 == ind2 and rank_array[ind1] == 1) or rank_array[ind2] == 0:
-            continue
-        min_ind2 = ind2
-        dict1 = answer_dict.copy()
-        dict1.update({curr_ind: (ind1, ind2)})
-        copy_array = np.array(rank_array)
-        copy_array[ind1] -= 1
-        copy_array[ind2] -= 1
-        yield from place_pairs(*copy_array, min_ind2=min_ind2, curr_ind=curr_ind + 1, start=start, answer_dict=dict1)
+    def __repr__(self):
+        repstr = [str(coeff) + ' * ' + str(term) + ' + ' for term, coeff in zip(self.term_list, self.coeffs)]
+        return reduce(add, repstr)[:-3]
 
+    def __str__(self):
+        return self.__repr__() + " = 0"
 
-def place_indices(*rank_array) -> Generator[Dict[int, Tuple[int]], None, None]:
-    """
-    Creates a generator that yields all possible labels dictionaries that would describe 'rank_array'.
+    def __eq__(self, other):
+        return self.term_list == other.term_list and self.coeffs == other.coeffs
 
-    :param rank_array: A list with 2n elements containing information about n Observable objects. The list stores each
-    Observable 's spatial derivative order and tensor rank.
-    :return: Generator that yields all possible labels, valid or not.
-    """
-    # only paired indices allowed
-    if sum(rank_array) % 2 == 0:
-        yield from place_pairs(*rank_array)
-    # one single index
-    else:
-        for single_ind in range(len(rank_array)):
-            if rank_array[single_ind] > 0:
-                copy_array = np.array(rank_array)
-                copy_array[single_ind] -= 1
-                yield from place_pairs(*copy_array, answer_dict={0: (single_ind,)})
+    def contract(self, ind1=0, ind2=1):
+        components = [coeff * term.contract(ind1, ind2) for term, coeff in zip(self.term_list, self.coeffs)]
+        if not components:
+            return [] #None
+        return reduce(add, components)
 
+    # should no longer be needed since canonicalization enforced in the constructor
+    # def canonicalize(self):
+    #     if len(self.term_list) == 0:
+    #         return self
+    #     term_list = []
+    #     coeffs = []
+    #     i = 0
+    #     while i < len(self.term_list):
+    #         reps = 0
+    #         prev = self.term_list[i]
+    #         while i < len(self.term_list) and prev == self.term_list[i]:
+    #             reps += self.coeffs[i]
+    #             i += 1
+    #         term_list.append(prev)
+    #         coeffs.append(reps)
+    #     return Equation(term_list, coeffs)
 
-# Todo: Add hinting after moving LibraryTensor to commons.
-def list_labels(tensor) -> List[Dict[int, Tuple[int]]]:
-    """
-    Generates a list with all valid label dictionaries for a given LibraryTensor object.
-    See test_valid_label() for the definition of a valid label. For more information on labels and indexes see:
-    https://github.com/sibirica/SPIDER_discrete/wiki/Index-Lists-and-Labels
+    def eliminate_complex_term(self, return_normalization=False):
+        if len(self.term_list) == 1:
+            return self.term_list[0], None
+        lhs = max(self.term_list, key=lambda t: t.complexity)
+        lhs_ind = self.term_list.index(lhs)
+        new_term_list = self.term_list[:lhs_ind] + self.term_list[lhs_ind + 1:]
+        new_coeffs = self.coeffs[:lhs_ind] + self.coeffs[lhs_ind + 1:]
+        new_coeffs = [-c / self.coeffs[lhs_ind] for c in new_coeffs]
+        rhs = Equation(new_term_list, new_coeffs)
+        if return_normalization:
+            return lhs, rhs, self.coeffs[lhs_ind]
+        return lhs, rhs
 
-    :param tensor: A LibraryTensor object.
-    :return: List of all valid labels dictionaries for a given LibraryTensor.
-    """
-    rank_array = []
-    for term in tensor.obs_list:
-        rank_array.append(term.dorder.xorder)
-        if hasattr(term, 'observable'):
-            rank_array.append(term.observable.rank)
+    def to_term(self):
+        if len(self.term_list) != 1:
+            raise ValueError("Equation contains more than one distinct term")
         else:
-            rank_array.append(term.cgp.rank)
-    return [output_dict for output_dict in place_indices(*rank_array) if test_valid_label(output_dict, tensor.obs_list)]
+            return self.term_list[0]
 
+class TermSum(Equation):
+    def __init__(self, term_list):  # terms are LibraryTerms, coeffs are real numbers
+        self.term_list = sorted(term_list)
+        self.coeffs = [1] * len(term_list)
+        self.rank = term_list[0].rank
 
-# check if index labeling is invalid (i.e. not in non-decreasing order among identical terms)
-# this excludes more incorrect options early than is_canonical
-# the lexicographic ordering rule fails at N=6 but this is accounted for by the canonicalization
-def test_valid_label(output_dict: Dict[int, Union[List[int], Tuple[int]]], obs_list: list) -> bool:
-    """
-    Checks if a labels dictionary is valid for a given obs_list.
-    A label is deemed invalid if its is not in non-decreasing order among identical terms
-    For more information regarding labels see:
-    https://github.com/sibirica/SPIDER_discrete/wiki/Index-Lists-and-Labels
+    def __str__(self):
+        repstr = [str(term) + ' + ' for term in self.term_list]
+        return reduce(add, repstr)[:-3]
 
-    :param output_dict: A labels dictionary.
-    :param obs_list: A list of observables (or any object that supports the == operation).
-    :return: False if the label is not in non-decreasing order among identical terms. True otherwise.
-    """
-    if len(output_dict.keys()) < 2:  # not enough indices for something to be invalid
-        return True
-    # this can be implemented more efficiently, but the cost is negligible for reasonably small N
-    bins: List[list] = []  # bin observations according to equality
-    for obs in obs_list:
-        found_match = False
-        for bi in bins:
-            if bi is not None and obs == bi[0]:
-                bi.append(obs)
-                found_match = True
-        if not found_match:
-            bins.append([obs])
-    if len(bins) == len(obs_list):
-        return True  # no repeated values
-    # else need to check more carefully
-    n = len(obs_list)
-    index_list = labels_to_index_list(output_dict, n)
-    for i in range(n):
-        for j in range(i + 1, n):
-            if obs_list[i] == obs_list[j]:
-                clist1 = CompList(index_list[2 * i] + index_list[2 * i + 1])
-                clist2 = CompList(index_list[2 * j] + index_list[2 * j + 1])
-                if not clist2.special_bigger(clist1):  # if (lexicographic) order decreases OR 'i' appears late
-                    return False
-    return True
+    def __add__(self, other):
+        #if isinstance(other, TermSum):
+        #    return TermSum(self.term_list + other.term_list)
+        #elif isinstance(other, Equation):
+        if isinstance(other, Equation):
+            return Equation(self.term_list + other.term_list, self.coeffs + other.coeffs)
+        else:
+            raise TypeError(f"Second argument {other}) is not an equation.")
 
-# n is the integer to partition up to, k is the length of partitions
-def partition(n: int, k: int) -> Generator[Tuple[int], None, None]:
-    """
-    Given k bins (represented by a k-tuple), it yields every possible way to distribute x elements among those bins,
-    with x ranging from 0 to n. For example partition(n=3, k=2) -> [(0, 0), (0, 1), (0, 2), (0, 3), (1, 0), (1, 1),
-    (1, 2), (2, 0), (2, 1), (3, 0)].
-    NOTE: partition(n, 0) returns None, and partition(n, 1) is similar to range(n + 1), but the yields are wrapped in a
-    1-tuple.
+### utilities
+# def create_derivative_string(torder: int, xorder: int) -> (str, str):
+#     """
+#     Creates a derivative string given a temporal order and a spatial order.
 
-    :param n: Max number of elements to distribute.
-    :param k: Number of bins to distribute.
-    :return: Generator that yields all possible partitions.
-    """
-    if k < 1:
+#     :param torder: Temporal derivative order.
+#     :param xorder: Spatial Derivative Order.
+#     :return: Time derivative string, Spatial derivative string
+#     """
+
+#     if torder == 0:
+#         tstring = ""
+#     elif torder == 1:
+#         tstring = "dt "
+#     else:
+#         tstring = f"dt^{torder} "
+#     if xorder == 0:
+#         xstring = ""
+#     elif xorder == 1:
+#         xstring = "dx "
+#     else:
+#         xstring = f"dx^{xorder} "
+#     return tstring, xstring
+
+def yield_tuples_up_to(bounds):
+    if len(bounds) == 0:
+        yield ()
         return
-    if k == 1:
-        for i in range(n + 1):
-            yield i,
-        return
-    for i in range(n + 1):
-        for result in partition(n - i, k - 1):
-            yield (i,) + result
+    for i in range(bounds[0] + 1):
+        for tup in yield_tuples_up_to(bounds[1:]):
+            # print(i, tup)
+            yield (i,) + tup
+
+def yield_legal_tuples(bounds): # allocate observables & derivatives up to the available bounds
+    # print("bounds:", bounds)
+    if sum(bounds[:-2]) > 0:  # if there are still other observables left
+        # print("ORDERS:", bounds)
+        yield from yield_tuples_up_to(bounds)
+    else:  # must return all derivatives immediately
+        # print("Dump ORDERS")
+        yield bounds

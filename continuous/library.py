@@ -7,22 +7,58 @@ from warnings import warn
 
 from numpy import inf
 
+from commons.z3_base import *
 from commons.library import *
 
-
-# noinspection PyArgumentList
-@dataclass
-class LibraryPrimitive(object):
+@dataclass(frozen=True)
+class LibraryPrime[T](EinSumExpr):
     """
-    Object representing a library primitive. Stores the primitive's derivative order, corresponding Observable, rank and
-    complexity. The term 'observable' usually refers to this class (or to IndexedPrimitive) rather than an
-    Observable object.
-
-    :attribute dorder: DerivativeOrder object representing the primitive's spatial and temporal derivative orders.
-    :attribute observable: Observable object storing the observable being referenced by the primitive.
-    :attribute rank: Tensor rank of the primitive.
-    :attribute complexity: Complexity score of the primitive.
+    Object representing a library prime. Stores the prime's derivative order, corresponding Observable, rank and complexity.
     """
+    _: KW_ONLY
+    observable: Observable
+    derivative_inds: Tuple[T] = ()
+    derivative_order: DerivativeOrder[T] = DerivativeOrder(0, 0)
+    is_commutative: bool = False
+
+    @cached_property
+    def complexity(self):
+        return self.observable.complexity+self.derivative_order.complexity
+
+    # For sorting: convention is in ascending order of name
+
+    def __lt__(self, other):
+        if not isinstance(other, Observable):
+            raise TypeError(f"Operation not supported between instances of '{type(self)}' and '{type(other)}'")
+        return self.string < other.string if self.string != other.string \
+            else tuple(self.all_indices()) < tuple(other.all_indices())
+
+    # def __eq__(self, other):
+    #     if not isinstance(other, Observable):
+    #         raise TypeError(f"Operation not supported between instances of '{type(self)}' and '{type(other)}'")
+    #     return self.string == other.string and tuple(self.all_indices()) == tuple(other.all_indices())
+
+    def __repr__(self):
+        index_string = ''.join([repr(idx) for idx in self.all_indices()])
+        return f"{self.string}" if index_string == "" else f"{self.string}_{index_string}"
+
+    def sub_exprs(self) -> Iterable[T]:
+        return []
+
+    def own_indices(self) -> Iterable[T]:
+        return tuple([IndexHole()]*self.get_rank()) if self.indices is None  \
+               else self.indices
+
+    def map[T2](self, *, 
+                expr_map: Callable[[EinSumExpr[T]], EinSumExpr[T2]] = lambda x: x,
+                index_map: Callable[[T], T2] = lambda x: x) -> EinSumExpr[T2]:
+        """ Constructs a copy of self replacing (direct) child expressions according to expr_map 
+            and (direct) child indices according to index_map"""
+        return replace(self, indices=tuple([index_map(index) for index in self.own_indices()]))
+        #return Observable(string=self.string, rank=self.get_rank(), 
+        #                  indices=[f(index) for index in self.all_indices()])
+
+
     dorder: DerivativeOrder = None
     observable: Observable = None
     rank: int = field(init=False)
@@ -830,44 +866,6 @@ class ConstantTerm(IndexedTerm):
         """
         return None
 
-
-def label_repr(prim: LibraryPrimitive, ind1: List[str], ind2: List[str]) -> str:
-    """
-    Given a LibraryPrimitive, the list of differential indexes, and its list of observable indexes. Returns a formatted
-    string of its representation.
-    A Library Primitive is represented by its time derivative(if any) with respective order(if greater than one),
-    followed by its spatial derivative (if any) with respective index and order (if greater than one), followed by the
-    observable representation with respective index (if any, only for rank 1 tensors).
-    NOTE: Indexes are stored in order-sensitive lists. For consistent representation of library terms use canonicalized
-    objects.
-
-    :param prim: LibraryPrimitive to be represented
-    :param ind1: List of Derivative Indexes
-    :param ind2: List of Observable Indexes
-    :return: String representation of this indexed LibraryPrimitive.
-    """
-    torder = prim.dorder.torder
-    xorder = prim.dorder.xorder
-    obs = prim.observable
-    if torder == 0:
-        tstring = ""
-    elif torder == 1:
-        tstring = "dt "
-    else:
-        tstring = f"dt^{torder} "
-    if xorder == 0:
-        xstring = ""
-    else:
-        ind1 = compress(ind1)
-        xlist = [f"d{letter} " for letter in ind1]
-        xstring = reduce(add, xlist)
-    if obs.rank == 1:
-        obstring = obs.string + "_" + ind2[0]
-    else:
-        obstring = obs.string
-    return tstring + xstring + obstring
-
-
 # noinspection PyArgumentList
 def raw_library_tensors(observables: Union[List[Observable], Tuple[Observable]],
                         obs_orders: Union[List[int], Tuple[list]],
@@ -949,251 +947,3 @@ def generate_terms_to(order: int,
                     if lt.is_canonical:
                         libterms.append(lt)
     return libterms
-
-
-class Equation(object):  # can represent equation (expression = 0) OR expression
-    """
-    Equation objects may represent an equation (an expression that equals to zero) or an expression.
-
-    :attribute coeffs: Sequence of Real numbers that represent the coefficient of each term in the Equation.
-    :attribute complexity: Complexity score of the object. Equal to the sum of the complexity attribute of each object
-    stored in self.term_list.
-    :attribute rank: Tensor rank of the equation or expression.
-    :attribute term_list: Sequence of LibraryTerm objects representing the terms of the Equation.
-    """
-
-    # terms are LibraryTerms, coeffs are real numbers
-    def __init__(self, term_list: Union[List[LibraryTerm], Tuple[LibraryTerm]],
-                 coeffs: Union[List[Real], Tuple[Real]]):
-        """
-        Constructs an Equation given a sequence of LibraryTerm objects and the list of associated coefficients.
-
-        :param term_list: Sequence of LibraryTerm objects that will represent the terms of the Equation.
-        :param coeffs: Sequence of floats that will represent the coefficient of each term in the Equation.
-        """
-        if len(term_list) != len(coeffs):
-            warn(RuntimeWarning("Initializing Equation with term_list and coeffs with unequal length. This might "
-                                "lead to undesired/unpredictable behaviour!"))
-        content = zip(term_list, coeffs)
-        sorted_content = sorted(content, key=lambda x: x[0])
-        # note that sorting guarantees canonicalization in equation term order
-        self.term_list = [e[0] for e in sorted_content]
-        self.coeffs = [e[1] for e in sorted_content]
-        self.rank = term_list[0].rank
-        self.complexity = sum([term.complexity for term in term_list])  # another choice is simply the number of terms
-
-    def __add__(self, other: 'Equation') -> 'Equation':
-        """
-        Summing two Equation objects results in another Equation object that concatenates the base objects' term_list
-        and coeffs.
-
-        :param other: Equation to add to self.
-        :return: Sum of both Equation objects.
-        """
-        if isinstance(other, Equation):
-            return Equation(self.term_list + other.term_list, self.coeffs + other.coeffs)
-        else:
-            raise TypeError(f"Cannot add object of type {type(other)} with object of type {type(self)}.\n"
-                            f"Second argument ({other}) is not an Equation!")
-
-    def __rmul__(self, other) -> Union['Equation', None]:
-        """
-        Explicitly defines multiplication for Equation objects. Multiplying an Equation by a LibraryTerm results in
-        an Equation where every term of the original Equation is multiplied by the LibraryTerm and is then
-        canonicalized. Multiplying an Equation by a number simply returns a similar Equation where each item of
-        self.coeffs is multiplied by that number.
-
-        :param other: Object to multiply the Equation by.
-        :return: Equation resulting of the product other*self.
-        """
-        if isinstance(other, LibraryTerm):
-            return Equation([(other * term).canonicalize() for term in self.term_list], self.coeffs)
-        elif isinstance(other, (float, int)):  # multiplication by number
-            if other == 1:
-                return self
-            elif other == 0:
-                return None
-            else:
-                return Equation(self.term_list, [other * c for c in self.coeffs])
-        elif isinstance(other, ConstantTerm):
-            return self
-        else:
-            raise TypeError(f'Cannot multiply type {type(other)} with type {type(self)}.')
-
-    def __mul__(self, other) -> 'Equation':
-        """
-        Explicitly establishes the commutativity of multiplication with Equation objects.
-
-        :param other: Object to multiply the Equation by.
-        :return: Equation resulting of the product other*self.
-        """
-        return self.__rmul__(other)
-
-    def __repr__(self) -> str:
-        """
-        An Equation is represented by "{coeff} * term" iterated over self.term_list and self.coeffs.
-        E.g.: 0.9999999997877309 * di p + 5.39269567032929e-11 * p * di p + 1.0 * u_j * dj u_i
-
-        :return: Representation of the Equation.
-        """
-        repstr = [str(coeff) + ' * ' + str(term) + ' + ' for term, coeff in zip(self.term_list, self.coeffs)]
-        return reduce(add, repstr)[:-3]
-
-    def __str__(self) -> str:
-        """
-        Transforming an Equation into a string is equivalent to getting its representation and appending " = 0".
-
-        :return: String of the Equation.
-        """
-        return self.__repr__() + " = 0"
-
-    def __eq__(self, other: 'Equation') -> bool:
-        """
-        For two Equation objects to be deemed equal they must have the same term_list and the same coeffs.
-
-        :param other: Equation to compare equality two.
-        :return: Comparison result.
-        """
-        if isinstance(other, Equation):
-            return self.term_list == other.term_list and self.coeffs == other.coeffs
-        else:
-            raise TypeError(f'Cannot compare equality between type {type(other)} and type {type(self)}.')
-
-    def dt(self) -> Union['Equation', 'TermSum', None]:
-        """
-        Takes the temporal derivative of self, does so by taking the time derivative of every element of term_list,
-        except ConstantTerm objects, then canonicalizing. If all objects in term_list are type ConstantTerm returns
-        None.
-
-        :return: The first time derivative of self. Treating 0 as None.
-        """
-        components = [coeff * term.dt() for term, coeff in zip(self.term_list, self.coeffs)
-                      if not isinstance(term, ConstantTerm)]
-        if not components:
-            return None
-        return reduce(add, components).canonicalize()
-
-    def dx(self) -> Union['Equation', 'TermSum', None]:
-        """
-        Takes the spatial derivative of self, does so by taking the space derivative of every element of term_list,
-        except ConstantTerm objects, then canonicalizing. If all objects in term_list are type ConstantTerm returns
-        None.
-
-        :return: The first space derivative of self. Treating 0 as None.
-        """
-        components = [coeff * term.dx() for term, coeff in zip(self.term_list, self.coeffs)
-                      if not isinstance(term, ConstantTerm)]
-        if not components:
-            return None
-        return reduce(add, components).canonicalize()
-
-    def canonicalize(self) -> 'Equation':
-        """
-        Canonicalizes self by combining like terms, i.e. deleting duplicates on self.term_list and adding the
-        duplicate's coefficients.
-
-        :return: Canonical version of self.
-        """
-        if len(self.term_list) == 0:
-            return self
-        term_list = []
-        coeffs = []
-        i = 0
-        while i < len(self.term_list):
-            reps = 0
-            prev = self.term_list[i]
-            while i < len(self.term_list) and prev == self.term_list[i]:
-                reps += self.coeffs[i]
-                i += 1
-            term_list.append(prev)
-            coeffs.append(reps)
-        return Equation(term_list, coeffs)
-
-    def eliminate_complex_term(self, return_normalization: bool = False) \
-            -> Union[Tuple[LibraryTerm, Optional['Equation'], Real],
-                     Tuple[LibraryTerm, Optional['Equation']]]:
-        """
-        Identifies and removes the term with the highest complexity score from the Equation, then normalizes the
-        remaining terms by -1 * coefficient of the highest complexity term. Returns the results as a tuple with the
-        first element being the LibraryTerm of the highest complexity term, the second element being the new normalized
-        Equation, and (if return_normalization is True) the third element being the coefficient of the highest
-        complexity term.
-        NOTE: Mathematically, this is equivalent to starting with the statement Equation = 0, then moving all terms,
-        except the one with the highest complexity, to the right hand side, then dividing both sides to assure the
-        right hand side has coefficient 1.
-
-        :param return_normalization: Whether to return the coefficient of the most complex term.
-        :return: Tuple with the most complex LibraryTerm, Equation with the remaining terms normalized by -1 * its
-        coefficient, and (if return_normalization is True) the coefficient itself.
-        """
-        if len(self.term_list) == 1:
-            return self.term_list[0], None
-        lhs = max(self.term_list, key=lambda t: t.complexity)
-        lhs_ind = self.term_list.index(lhs)
-        new_term_list = self.term_list[:lhs_ind] + self.term_list[lhs_ind + 1:]
-        new_coeffs = self.coeffs[:lhs_ind] + self.coeffs[lhs_ind + 1:]
-        new_coeffs = [-c / self.coeffs[lhs_ind] for c in new_coeffs]
-        rhs = Equation(new_term_list, new_coeffs)
-        if return_normalization:
-            return lhs, rhs, self.coeffs[lhs_ind]
-        return lhs, rhs
-
-    def to_term(self) -> LibraryTerm:
-        """
-        If the Equation has a single term, returns that LibraryTerm. Raises ValueError otherwise.
-
-        :return: The term of single term Equations.
-        """
-        if len(self.term_list) != 1:
-            raise ValueError("Equation contains more than one distinct term")
-        else:
-            return self.term_list[0]
-
-
-class TermSum(Equation):
-    """
-    Special instance of Equation where all coefficients are equal to one.
-
-    :attribute coeffs: Sequence of Real numbers that represent the coefficient of each term in the Equation.
-    :attribute complexity: Complexity score of the object. Equal to the sum of the complexity attribute of each object
-    stored in self.term_list.
-    :attribute rank: Tensor rank of the equation or expression.
-    :attribute term_list: Sequence of LibraryTerm objects representing the tersm of the Equation.
-    """
-
-    # terms are LibraryTerms, coeffs are real numbers
-    def __init__(self, term_list: Union[List[LibraryTerm], Tuple[LibraryTerm]]):
-        """
-        Constructs a TermSum given a sequence of LibraryTerm objects.
-
-        :param term_list: Sequence of LibraryTerm objects that will represent the terms of the TermSum.
-        """
-        super().__init__(term_list=term_list, coeffs=[1] * len(term_list))
-
-    def __str__(self):
-        """
-        A TermSum 's string is constructed in the same manner as an Equation 's; however, as all coefficients are known
-        to be 1 their representation is omitted.
-
-        :return: String representing the TermSum
-        """
-        repstr = [str(term) + ' + ' for term in self.term_list]
-        return reduce(add, repstr)[:-3]
-
-    def __add__(self, other: Union['TermSum', Equation]) -> Union['TermSum', Equation]:
-        """
-        Defines addition for TermSum objects. Adding two TermSum objects results in a third TermSum object created from
-        the concatenation of the base TermSum objects' term_list. Adding a TermSum and an Equation results in a new
-        Equation constructed from the concatenation of the base objects' term_list and coeffs.
-
-        :param other: Object to be added to self.
-        :return: Result of the addition.
-        """
-
-        if isinstance(other, TermSum):
-            return TermSum(self.term_list + other.term_list)
-        elif isinstance(other, Equation):
-            return Equation(self.term_list + other.term_list, self.coeffs + other.coeffs)
-        else:
-            raise TypeError(f"Cannot multiply type {type(other)} with {type(self)}.\n"
-                            f"Second argument {other}) is not an Equation.")
