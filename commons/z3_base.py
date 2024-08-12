@@ -14,6 +14,10 @@ class SymmetryRep:
     _: KW_ONLY
     rank: int
 
+    def __add__(self, other):
+        print("Warning, SymmetryReps have been added")
+        return FullRank(rank=self.rank + other.rank)
+
 @dataclass
 class Antisymmetric(SymmetryRep):
     def __repr__(self):
@@ -83,7 +87,7 @@ class VarIndex:
             return self.value == other.value
 
     def __repr__(self):
-        return "ijklmnopqrstuvw"[self.value]
+        return "αβγδεζηθικλμνξοπρστυφχψω"[self.value]
 
 @dataclass(frozen=True)
 class LiteralIndex:
@@ -110,7 +114,6 @@ Index = IndexHole | SMTIndex | VarIndex | LiteralIndex
 class EinSumExpr[T](ABC):
     _: KW_ONLY
     is_commutative: bool
-    rank: Union[int, SymmetryRep]
 
     @abstractmethod
     def __lt__(self, other):
@@ -143,7 +146,7 @@ class EinSumExpr[T](ABC):
         """ Implementation returns list of own indices """
         ...
 
-    @lru_cache(maxsize=10000)
+    #@lru_cache(maxsize=10000)
     def all_indices(self) -> list[T]: # make sure these are in depth-first/left-to-right order
         """ List all indices """
         return list(self.own_indices()) + [idx for expr in self.sub_exprs() for idx in expr.all_indices()]
@@ -163,9 +166,16 @@ class EinSumExpr[T](ABC):
             and (direct) child indices according to index_map"""
         ...
 
+    def map_all_indices[T2](self, index_map: Callable[[T], T2]) -> EinSumExpr[T2]:
+        def mapper(expr):
+            nonlocal index_map
+            return expr.map(expr_map=mapper, index_map=index_map)
+        return mapper(self)
+
     def canonical_indexing_problem(self) -> tuple[EinSumExpr[SMTIndex], list[z3.ExprRef]]:        
         constraints = []
-        def expr_map(expr):
+        def emap(expr):
+            nonlocal constraints
             updated, cxs = expr.canonical_indexing_problem()
             constraints += cxs
             return updated
@@ -174,11 +184,11 @@ class EinSumExpr[T](ABC):
         def next_z3_var(ctr = count()):
             return z3.Int(f"{base_id}_{next(ctr)}")
         idx_cache = defaultdict(next_z3_var)
-        def index_map(idx):
+        def imap(idx):
             return SMTIndex(idx_cache[idx] if not isinstance(idx, IndexHole) 
                             else next_z3_var())
         
-        updated = self.map(expr_map = expr_map, index_map = index_map)
+        updated = self.map(expr_map=emap, index_map=imap)
         
         if self.is_commutative:
             duplicates = defaultdict(list)
@@ -223,7 +233,7 @@ def generate_indexings(expr: EinSumExpr[IndexHole | VarIndex]) -> Iterable[EinSu
     while (result := solver.check()) == z3.sat: # smt solver finds a new solution
         m = solver.model()
         indexing = {index: m[index.var] for index in indices}
-        yield indexed_expr.map(index_map = lambda index: VarIndex(indexing[index].as_long()))
+        yield indexed_expr.map_all_indices(index_map = lambda index: VarIndex(indexing[index].as_long()))
         # prevent smt solver from repeating solution
         solver.add(z3.Or(*[idx.var != val for idx, val in indexing.items()])) 
     if result == z3.unknown:
