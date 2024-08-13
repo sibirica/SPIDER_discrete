@@ -184,6 +184,7 @@ class DerivativeOrder[T](EinSumExpr):
             and (direct) child indices according to index_map"""
         return replace(self, x_derivatives=tuple([index_map(index) for index in self.own_indices()]))
 
+## MAY WANT TO OVERRIDE CANONICAL_INDEXING_PROBLEM FOR OBSERVABLES WITH SYMMETRY REPRESENTATION... OR JUST CHANGE IS_COMMUTATIVE (EASIER)
 @dataclass(frozen=True)
 class Observable[T](EinSumExpr):
     """
