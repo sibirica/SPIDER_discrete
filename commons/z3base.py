@@ -5,7 +5,7 @@ from typing import Any, Protocol, Union, assert_type
 from abc import abstractmethod, ABC
 from collections import defaultdict
 from collections.abc import Callable, Iterable
-from dataclasses import dataclass, field, KW_ONLY
+from dataclasses import dataclass, field, replace, KW_ONLY
 from itertools import count
 import z3
 
@@ -70,6 +70,9 @@ class SMTIndex:
 
     def __repr__(self):
         return f"{repr(self.var)}"
+
+    def __hash__(self): # is this dangerous Akash? maybe probably?
+        return hash(self.var)
 
 @dataclass(frozen=True)
 class VarIndex:
@@ -174,24 +177,30 @@ class EinSumExpr[T](ABC):
             return expr.map(expr_map=mapper, index_map=index_map)
         return mapper(self)
 
-    def canonical_indexing_problem(self) -> tuple[EinSumExpr[SMTIndex], list[z3.ExprRef]]:
-        constraints = []
-        def emap(expr):
-            nonlocal constraints
-            updated, cxs = expr.canonical_indexing_problem()
-            constraints += cxs
-            return updated
+    def canonical_indexing_problem(self, idx_cache: defaultdict | None = None) -> tuple[EinSumExpr[SMTIndex], list[z3.ExprRef]]:
 
         base_id = f"i{id(self)}"
         def next_z3_var(ctr = count()):
             return z3.Int(f"{base_id}_{next(ctr)}")
-        idx_cache = defaultdict(next_z3_var)
+        
+        idx_cache = defaultdict(next_z3_var) if idx_cache is None else idx_cache
+        
+        constraints = []
+        def emap(expr):
+            nonlocal constraints
+            updated, cxs = expr.canonical_indexing_problem(idx_cache)
+            constraints += cxs
+            return updated
+
         def imap(idx):
             if isinstance(idx, IndexHole):
                 return SMTIndex(next_z3_var())
+            idx_cache["hello"]
+            #print(id(idx_cache), idx, len(idx_cache), idx_cache[idx])
             return SMTIndex(idx_cache[idx], src=idx)
-
+        
         updated = self.map(expr_map=emap, index_map=imap)
+        #print(id(idx_cache), list(idx_cache.items()))
 
         if self.is_commutative:
             duplicates = defaultdict(list)
@@ -229,21 +238,22 @@ def generate_indexings(expr: EinSumExpr[IndexHole | VarIndex]) -> Iterable[EinSu
     constraints += [single_idx_max == n_single_inds, paired_idx_max == n_total_inds]
     # constrain number of appearances in pair
     for paired_idx in range(n_single_inds, n_total_inds):
-        constraints.append(z3.AtMost(*[idx == paired_idx for idx in indices], 2))
+        constraints.append(z3.AtMost(*[idx.var == paired_idx for idx in indices], 2))
     # give problem to smt solver
     solver = z3.Solver()
     solver.add(*constraints)
     while (result := solver.check()) == z3.sat: # smt solver finds a new solution
         m = solver.model()
         indexing = {index: m[index.var] for index in indices}
-        yield indexed_expr.map_all_indices(index_map = lambda index: VarIndex(indexing[index].as_long()))
+        yield indexed_expr.map_all_indices(
+            index_map = lambda index: VarIndex(indexing[index].as_long(), src=index.src))
         # prevent smt solver from repeating solution
         solver.add(z3.Or(*[idx.var != val for idx, val in indexing.items()]))
     if result == z3.unknown:
         raise RuntimeError("Could not solve SMT problem :(")
 
-def lexico_lt(idsA: list[z3.Int], idsB: list[z3.Int]) -> z3.ExprRef:
+def lexico_lt(idsA: list[SMTIndex], idsB: list[SMTIndex]) -> z3.ExprRef:
     lt = False
-    for a, b in reversed(zip(idsA, idsB)):
-        lt = z3.Or(a < b, z3.And(a == b, lt))
+    for a, b in zip(reversed(idsA), reversed(idsB)):
+        lt = z3.Or(a.var < b.var, z3.And(a.var == b.var, lt))
     return lt

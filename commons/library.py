@@ -14,6 +14,7 @@ from z3base import *
 
 # increment all indices (Einstein or literal) in an expression
 def inc_inds(expr: EinSumExpr[VarIndex | LiteralIndex], shift=1):
+    return expr.map_all_indices(lambda ind: replace(ind, value=ind.value + shift))
     return expr.map(expr_map=inc_inds,
                     index_map=lambda ind: replace(ind, value=ind.value + shift))
 
@@ -25,14 +26,25 @@ def index_rank(indices: Iterable[VarIndex]):
 
 # get highest index in list
 def highest_index(indices: Iterable[VarIndex]):
-    return max(index.value for index in indices)
+    return max(index.value for index in indices) if indices else 0
 
 def canonicalize(expr: EinSumExpr[VarIndex]):
     if isinstance(expr, LibraryTerm):
         expr = expr.lexico_canon()
+    print(expr)
     indexings = generate_indexings(expr)
-    canon = next(indexings)
-    assert next(indexings, -1) == -1, "Expected only one canonical indexing"
+    try:
+        canon = next(indexings)
+    except StopIteration:
+        assert False, f"Didn't find any indexings :("
+    try:
+        canon2 = next(indexings)
+        #for additional in indexings:
+        #    print(additional)
+        assert False, f"Found multiple canonical indexings: {canon} and {canon2}"
+    except StopIteration:
+        pass
+    #assert next(indexings, -1) == -1, "Expected only one canonical indexing"
     return canon
 
 def dt(expr: EinSumExpr[VarIndex]):
@@ -49,16 +61,27 @@ def dt(expr: EinSumExpr[VarIndex]):
         # note that derivative is an Equation object in general
             components = tuple([coeff * dt(term) for term, coeff in zip(self.terms, self.coeffs)
                           if not isinstance(term, ConstantTerm)])
-            if not components:
-                return Equation((), ()) #None - might need an is_empty for Equation?
-            return reduce(add, components)#.canonicalize()
+            #if not components:
+            #    return Equation((), ()) #None - might need an is_empty for Equation?
+            return reduce(add, components, Equation(coeffs=(), terms=()))#.canonicalize()
 
 # construct term or equation by taking x derivative with respect to new i index, shifting others up by 1
 # NOT GUARANTEED TO BE CANONICAL
 def dx(expr: EinSumExpr[VarIndex]):
     # the alternative implementation was to run dx and then use z3 solver to identify index labeling
+    if isinstance(expr, ConstantTerm):
+        return LibraryTerm(primes=(), rank=0)
     inced = inc_inds(expr)
-    return dx_helper(inced)
+    dxed = dx_helper(inced)
+    #print(dxed, type(dxed))
+    match dxed:
+        case Equation():
+            dxed.rank = expr.rank+1
+            return dxed
+        case LibraryTerm() | Observable():
+            return replace(dxed, rank=expr.rank+1)
+        case _:
+            return dxed
 
 # take x derivative without worrying about indices
 def dx_helper(expr: EinSumExpr[VarIndex]):
@@ -71,8 +94,11 @@ def dx_helper(expr: EinSumExpr[VarIndex]):
             return replace(expr, derivative=dx_helper(d))
         case LibraryTerm():
             subexs = list(expr.sub_exprs())
-            return reduce(add, (reduce(mul_helper, (*subexs[:i], dx_helper(term), *subexs[i+1:]))
-                       for i, term in enumerate(subexs)))
+            def dxs(subexs):
+                return (reduce(mul_helper, (*subexs[:i], dx_helper(term), *subexs[i+1:]), 
+                               ConstantTerm())
+                       for i, term in enumerate(subexs))
+            return reduce(add, dxs(subexs), Equation(coeffs=(), terms=()))
         case Equation():
             components = tuple([coeff * dx_helper(term) for term, coeff in zip(expr.terms, expr.coeffs)
                       if not isinstance(term, ConstantTerm)])
@@ -83,28 +109,38 @@ def dx_helper(expr: EinSumExpr[VarIndex]):
 # contract term or equation along i and j indices, setting j to i (if i<j) and moving others down by 1
 # NOT GUARANTEED TO BE CANONICAL
 def contract(expr: EinSumExpr[VarIndex], i: int, j: int):
+    num_singles = index_rank(expr.all_indices()) 
     if j<i:
         i, j = j, i
     def contraction_map(ind: VarIndex):
-        if ind.value==j:
-            return VarIndex(i)
+        if ind.value==i or ind.value==j:
+            # index_rank decreases by 2 as a result of contraction, so map new double to ir-1
+            return VarIndex(num_singles-1) 
         if ind.value>j:
+            # beats 2 additional indices
+            return VarIndex(ind.value-2)
+        if ind.value>i:
+            # beats 1 additional index
             return VarIndex(ind.value-1)
         return ind
-    return expr.map_all_indices(index_map=contraction_map).lexico_canon()
+    reindexed_expr = expr.map_all_indices(index_map=contraction_map).lexico_canon()
+    return replace(reindexed_expr, rank=expr.rank-2)
 
 # helper function for prime/library term multiplication
 def mul_helper(a: LibraryPrime | LibraryTerm, b: LibraryPrime | LibraryTerm):
     def cast_to_term(x):
         if isinstance(x, ConstantTerm):
             return LibraryTerm(primes=(), rank=0)
-        return x if isinstance(x, LibraryTerm) else LibraryTerm(primes=(x,), rank=x.rank)
+        return x if isinstance(x, LibraryTerm) else \
+               LibraryTerm(primes=(x,), rank=x.rank)#index_rank(x.all_indices()))
     a = cast_to_term(a)
     b = cast_to_term(b)
     shift = highest_index(a.all_indices()) + 1
     product_rank = a.rank + b.rank
     combined_primes = tuple(sorted([*(a.primes), *(inc_inds(b, shift).primes)]))
+    #print(combined_primes)
     product = LibraryTerm(primes=combined_primes, rank=product_rank)
+    #print("PRECANONICAL", product)
     return canonicalize(product)
 
 @dataclass(frozen=True)
@@ -274,8 +310,17 @@ class LibraryPrime[T, Derivand](EinSumExpr):
     def __lt__(self, other):
         if not isinstance(other, LibraryPrime):
             raise TypeError(f"Operation not supported between instances of '{type(self)}' and '{type(other)}'")
-        return self.derivand < other.derivand if self.derivand != other.derivand \
-            else self.derivative < other.derivative
+        if self.derivand.string != other.derivand.string:
+            return self.derivand.string < other.derivand.string
+        self_orders = (self.derivative.torder, self.derivative.xorder)
+        other_orders = (other.derivative.torder, other.derivative.xorder)
+        if self_orders != other_orders:
+            return self_orders < other_orders
+        self_indices = self.derivand.all_indices() 
+        other_indices = other.derivand.all_indices()
+        if self_indices != other_indices:
+            return self_indices < other_indices
+        return self.derivative.x_derivatives < other.derivative.x_derivatives
 
     def __repr__(self):
         string1 = repr(self.derivative)
@@ -406,10 +451,15 @@ class Equation[T, Derivand]:  # can represent equation (expression = 0) OR expre
         coeffs = {canonicalize(term): coeff
                   for term, coeff in coeffs.items() if coeff != 0}
 
+        if not coeffs:
+            self.terms, self.coeffs = (), ()
+            return
+            
         # get minimum term for standardizing free indices
         first : LibraryTerm = min(coeffs.keys())
+        
         key_map = {idx.src : idx for idx in first.all_indices()
-                                 if idx.src.value < self.rank}
+                                 if idx.src and idx.src.value < self.rank}
 
         def mapper(idx):
             return key_map.get(idx.src, idx)
