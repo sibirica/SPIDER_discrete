@@ -10,13 +10,13 @@ from collections import defaultdict, Counter
 import numpy as np
 from typing import Union
 
-from z3_base import *
+from z3base import *
 
 # increment all indices (Einstein or literal) in an expression
 def inc_inds(expr: EinSumExpr[VarIndex | LiteralIndex], shift=1):
-    return expr.map(expr_map=inc_inds, 
+    return expr.map(expr_map=inc_inds,
                     index_map=lambda ind: replace(ind, value=ind.value + shift))
-    
+
 # get rank of an expression by looking at the indices of an Einstein expression
 def index_rank(indices: Iterable[VarIndex]):
     index_counter = Counter(indices)
@@ -28,23 +28,24 @@ def highest_index(indices: Iterable[VarIndex]):
     return max(index.value for index in indices)
 
 def canonicalize(expr: EinSumExpr[VarIndex]):
+    if isinstance(expr, LibraryTerm):
+        expr = expr.lexico_canon()
     indexings = generate_indexings(expr)
     canon = next(indexings)
-    assert next(indexings, -1) == -1, "Expected only one canonical indexing" 
+    assert next(indexings, -1) == -1, "Expected only one canonical indexing"
     return canon
 
-def dt(expr: EinSumExpr[VarIndex]): 
+def dt(expr: EinSumExpr[VarIndex]):
     match expr:
         case Observable():
             return LibraryPrime(derivative=DerivativeOrder.indexed_derivative(1, 0), derivand=expr)
-        case DerivativeOrder():
-            return DerivativeOrder(torder=self.torder + 1, xorder=self.xorder, 
-                                   x_derivatives=self.x_derivatives)
-        case LibraryPrime():
-            return replace(expr, derivative=dt(expr.derivative))
+        case DerivativeOrder(torder=to, x_derivatives=xd):
+            return DerivativeOrder(torder=to + 1, x_derivatives=xd)
+        case LibraryPrime(derivative=derivative):
+            return replace(expr, derivative=dt(derivative))
         case LibraryTerm():
             pass
-        case Equation():
+        case Equation(terms=terms, ):
         # note that derivative is an Equation object in general
             components = tuple([coeff * dt(term) for term, coeff in zip(self.terms, self.coeffs)
                           if not isinstance(term, ConstantTerm)])
@@ -54,7 +55,7 @@ def dt(expr: EinSumExpr[VarIndex]):
 
 # construct term or equation by taking x derivative with respect to new i index, shifting others up by 1
 # NOT GUARANTEED TO BE CANONICAL
-def dx(expr: EinSumExpr[VarIndex]): 
+def dx(expr: EinSumExpr[VarIndex]):
     # the alternative implementation was to run dx and then use z3 solver to identify index labeling
     inced = inc_inds(expr)
     return dx_helper(inced)
@@ -70,10 +71,10 @@ def dx_helper(expr: EinSumExpr[VarIndex]):
             return replace(expr, derivative=dx_helper(d))
         case LibraryTerm():
             subexs = list(expr.sub_exprs())
-            return reduce(add, (reduce(mul_helper, (*subexs[:i], dx_helper(term), *subexs[i+1:])) 
+            return reduce(add, (reduce(mul_helper, (*subexs[:i], dx_helper(term), *subexs[i+1:]))
                        for i, term in enumerate(subexs)))
         case Equation():
-            components = tuple([coeff * dx_helper(term) for term, coeff in zip(self.terms, self.coeffs)
+            components = tuple([coeff * dx_helper(term) for term, coeff in zip(expr.terms, expr.coeffs)
                       if not isinstance(term, ConstantTerm)])
             if not components:
                 return Equation((), ())
@@ -121,7 +122,7 @@ class DerivativeOrder[T](EinSumExpr):
         return self.torder+self.xorder
 
     @cached_property
-    def xorder(self):    
+    def xorder(self):
         return len(self.x_derivatives)
 
     # @cached_property
@@ -136,7 +137,7 @@ class DerivativeOrder[T](EinSumExpr):
 
     @classmethod
     def blank_derivative(cls, torder, xorder):
-    # make an abstract x derivative with given orders 
+    # make an abstract x derivative with given orders
         x_derivatives = tuple([IndexHole()]*xorder)
         return DerivativeOrder[IndexHole](torder=torder, x_derivatives=x_derivatives)
 
@@ -177,10 +178,10 @@ class DerivativeOrder[T](EinSumExpr):
         #       else self.x_derivatives
         return self.x_derivatives
 
-    def map[T2](self, *, 
+    def map[T2](self, *,
                 expr_map: Callable[[EinSumExpr[T]], EinSumExpr[T2]] = lambda x: x,
                 index_map: Callable[[T], T2] = lambda x: x) -> EinSumExpr[T2]:
-        """ Constructs a copy of self replacing (direct) child expressions according to expr_map 
+        """ Constructs a copy of self replacing (direct) child expressions according to expr_map
             and (direct) child indices according to index_map"""
         return replace(self, x_derivatives=tuple([index_map(index) for index in self.own_indices()]))
 
@@ -221,10 +222,10 @@ class Observable[T](EinSumExpr):
         return tuple([IndexHole()]*self.rank) if self.indices is None  \
                else self.indices
 
-    def map[T2](self, *, 
+    def map[T2](self, *,
                 expr_map: Callable[[EinSumExpr[T]], EinSumExpr[T2]] = lambda x: x,
                 index_map: Callable[[T], T2] = lambda x: x) -> EinSumExpr[T2]:
-        """ Constructs a copy of self replacing (direct) child expressions according to expr_map 
+        """ Constructs a copy of self replacing (direct) child expressions according to expr_map
             and (direct) child indices according to index_map"""
         return replace(self, indices=tuple([index_map(index) for index in self.own_indices()]))
 
@@ -287,10 +288,10 @@ class LibraryPrime[T, Derivand](EinSumExpr):
     def own_indices(self) -> Iterable[T]:
         return ()
 
-    def map[T2](self, *, 
+    def map[T2](self, *,
                 expr_map: Callable[[EinSumExpr[T]], EinSumExpr[T2]] = lambda x: x,
                 index_map: Callable[[T], T2] = lambda x: x) -> EinSumExpr[T2]:
-        """ Constructs a copy of self replacing (direct) child expressions according to expr_map 
+        """ Constructs a copy of self replacing (direct) child expressions according to expr_map
             and (direct) child indices according to index_map"""
         return replace(self, derivative=expr_map(self.derivative), derivand=expr_map(self.derivand))
 
@@ -333,10 +334,10 @@ class LibraryTerm[T, Derivand](EinSumExpr):
     def own_indices(self) -> Iterable[T]:
         return ()
 
-    def map[T2](self, *, 
+    def map[T2](self, *,
                 expr_map: Callable[[EinSumExpr[T]], EinSumExpr[T2]] = lambda x: x,
                 index_map: Callable[[T], T2] = lambda x: x) -> EinSumExpr[T2]:
-        """ Constructs a copy of self replacing (direct) child expressions according to expr_map 
+        """ Constructs a copy of self replacing (direct) child expressions according to expr_map
             and (direct) child indices according to index_map"""
         return replace(self, primes=tuple(expr_map(prime) for prime in self.primes))
 
@@ -347,7 +348,7 @@ class LibraryTerm[T, Derivand](EinSumExpr):
             return Equation(coeffs=(1, *other.coeffs), terms=(self, *other.terms))
 
     def __mul__(self, other: Union[LibraryPrime, LibraryTerm]) -> LibraryTerm:
-        return mul_helper(self, other)     
+        return mul_helper(self, other)
 
     def lexico_canon(self):
         return LibraryTerm(primes=tuple(sorted(self.primes)), rank=self.rank)
@@ -364,8 +365,9 @@ class Equation[T, Derivand]:  # can represent equation (expression = 0) OR expre
         # note that sorting guarantees canonicalization in equation term order
         self.terms = tuple(sorted(coeffs.keys()))
         self.coeffs = tuple(coeffs[term] for term in self.terms)
-        self.rank = terms[0].rank
+        self.rank = terms[0].rank if terms else 0
         self.complexity = sum([term.complexity for term in terms])  # another choice is simply the number of terms
+        self.canonicalize()
 
     def __add__(self, other):
         if isinstance(other, Equation):
@@ -394,6 +396,33 @@ class Equation[T, Derivand]:  # can represent equation (expression = 0) OR expre
 
     def __eq__(self, other):
         return self.terms == other.terms and self.coeffs == other.coeffs
+
+    def canonicalize(self):
+        coeffs = defaultdict(int)
+        for term, coeff in zip(self.terms, self.coeffs):
+            coeffs[term] += coeff
+
+        # canonicalize terms, removing those with 0 coefficient
+        coeffs = {canonicalize(term): coeff
+                  for term, coeff in coeffs.items() if coeff != 0}
+
+        # get minimum term for standardizing free indices
+        first : LibraryTerm = min(coeffs.keys())
+        key_map = {idx.src : idx for idx in first.all_indices()
+                                 if idx.src.value < self.rank}
+
+        def mapper(idx):
+            return key_map.get(idx.src, idx)
+
+        # reindex terms using free indices of first
+        coeffs = {
+            term.map_all_indices(mapper) : coeff
+            for term, coeff in coeffs.items()
+        }
+
+        # re-sort terms based on their updated indices
+        self.terms, self.coeffs = zip(*sorted(coeffs.items()))
+
 
     # should no longer be needed since canonicalization enforced in the constructor
     # def canonicalize(self):

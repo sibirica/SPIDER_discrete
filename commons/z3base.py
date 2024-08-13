@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
-from typing import Protocol, Union, assert_type
+from typing import Any, Protocol, Union, assert_type
 from abc import abstractmethod, ABC
 from collections import defaultdict
 from collections.abc import Callable, Iterable
@@ -49,37 +49,39 @@ class IndexHole:
             raise TypeError(f"Operation not supported between instances of '{type(self)}' and '{type(other)}'")
         else:
             return True
-    
+
     def __repr__(self):
         return "{ }"
 
 @dataclass(frozen=True)
 class SMTIndex:
     var: z3.ArithRef
+    src: Any = None
 
     def __lt__(self, other):
         raise TypeError(f"Operation not supported between instances of '{type(self)}' and '{type(other)}'")
         return None
-    
+
     def __eq__(self, other):
         if not isinstance(other, SMTIndex):
             raise TypeError(f"Operation not supported between instances of '{type(self)}' and '{type(other)}'")
         else:
             return self.var.eq(other.var)
-            
+
     def __repr__(self):
         return f"{repr(self.var)}"
 
 @dataclass(frozen=True)
 class VarIndex:
     value: int
+    src: Any = None
 
     def __lt__(self, other):
         if not isinstance(other, VarIndex):
             raise TypeError(f"Operation not supported between instances of '{type(self)}' and '{type(other)}'")
         else:
             return self.value < other.value
-    
+
     def __eq__(self, other):
         if not isinstance(other, VarIndex):
             raise TypeError(f"Operation not supported between instances of '{type(self)}' and '{type(other)}'")
@@ -98,15 +100,15 @@ class LiteralIndex:
             raise TypeError(f"Operation not supported between instances of '{type(self)}' and '{type(other)}'")
         else:
             return self.value < other.value
-    
+
     def __eq__(self, other):
         if not isinstance(other, LiteralIndex):
             raise TypeError(f"Operation not supported between instances of '{type(self)}' and '{type(other)}'")
         else:
             return self.value == other.value
-    
+
     def __repr__(self):
-        return "xyzt"[self.value]  # if your problem has 5 dimensions you messed up     
+        return "xyzt"[self.value]  # if your problem has 5 dimensions you messed up
 
 Index = IndexHole | SMTIndex | VarIndex | LiteralIndex
 
@@ -150,19 +152,19 @@ class EinSumExpr[T](ABC):
     def all_indices(self) -> list[T]: # make sure these are in depth-first/left-to-right order
         """ List all indices """
         return list(self.own_indices()) + [idx for expr in self.sub_exprs() for idx in expr.all_indices()]
-        
+
     # def map(self, f, ctx):
     #     new_obj = {x: f(v, ctx) for x, v in self.__dict__.items()}
     #     for x, v in self.__dict__.items():
     #         if type(v) != type(new_obj[x]):
     #             raise TypeError(f"{new_obj[x]} is not a plausible replacement for {v} in {str(self.__class__)}.{x}")
     #     return dataclasses.replace(self, **new_obj)
-            
+
     @abstractmethod
-    def map[T2](self, *, 
+    def map[T2](self, *,
                 expr_map: Callable[[EinSumExpr[T]], EinSumExpr[T2]] = lambda x: x,
                 index_map: Callable[[T], T2] = lambda x: x) -> EinSumExpr[T2]:
-        """ Constructs a copy of self replacing (direct) child expressions according to expr_map 
+        """ Constructs a copy of self replacing (direct) child expressions according to expr_map
             and (direct) child indices according to index_map"""
         ...
 
@@ -172,7 +174,7 @@ class EinSumExpr[T](ABC):
             return expr.map(expr_map=mapper, index_map=index_map)
         return mapper(self)
 
-    def canonical_indexing_problem(self) -> tuple[EinSumExpr[SMTIndex], list[z3.ExprRef]]:        
+    def canonical_indexing_problem(self) -> tuple[EinSumExpr[SMTIndex], list[z3.ExprRef]]:
         constraints = []
         def emap(expr):
             nonlocal constraints
@@ -185,23 +187,24 @@ class EinSumExpr[T](ABC):
             return z3.Int(f"{base_id}_{next(ctr)}")
         idx_cache = defaultdict(next_z3_var)
         def imap(idx):
-            return SMTIndex(idx_cache[idx] if not isinstance(idx, IndexHole) 
-                            else next_z3_var())
-        
+            if isinstance(idx, IndexHole):
+                return SMTIndex(next_z3_var())
+            return SMTIndex(idx_cache[idx], src=idx)
+
         updated = self.map(expr_map=emap, index_map=imap)
-        
+
         if self.is_commutative:
             duplicates = defaultdict(list)
             for e, e_new in zip(self.sub_exprs(), updated.sub_exprs()):
                 duplicates[e].append(e_new)
-            for dup_list in duplicates.values():            
+            for dup_list in duplicates.values():
                 for e, e_next in zip(dup_list, dup_list[1:]):
                     constraints.append(lexico_lt(e.all_indices(), e_next.all_indices()))
-                    
+
         return updated, constraints
 
 def generate_indexings(expr: EinSumExpr[IndexHole | VarIndex]) -> Iterable[EinSumExpr[VarIndex]]:
-    indexed_expr, constraints = expr.canonical_indexing_problem() # includes lexicographic constraints    
+    indexed_expr, constraints = expr.canonical_indexing_problem() # includes lexicographic constraints
     assert_type(indexed_expr, EinSumExpr[SMTIndex])
     # add global constraints
     indices = indexed_expr.all_indices()
@@ -217,7 +220,7 @@ def generate_indexings(expr: EinSumExpr[IndexHole | VarIndex]) -> Iterable[EinSu
             z3.And(idx.var == single_idx_max,
                    s_idx_max_next == idx.var+1, p_idx_max_next == paired_idx_max),
             z3.And(idx.var >= n_single_inds, idx.var <= paired_idx_max,
-                   s_idx_max_next == single_idx_max, 
+                   s_idx_max_next == single_idx_max,
                    p_idx_max_next == paired_idx_max + z3.If(idx.var==paired_idx_max, 1, 0)
                   )
         )]
@@ -235,7 +238,7 @@ def generate_indexings(expr: EinSumExpr[IndexHole | VarIndex]) -> Iterable[EinSu
         indexing = {index: m[index.var] for index in indices}
         yield indexed_expr.map_all_indices(index_map = lambda index: VarIndex(indexing[index].as_long()))
         # prevent smt solver from repeating solution
-        solver.add(z3.Or(*[idx.var != val for idx, val in indexing.items()])) 
+        solver.add(z3.Or(*[idx.var != val for idx, val in indexing.items()]))
     if result == z3.unknown:
         raise RuntimeError("Could not solve SMT problem :(")
 

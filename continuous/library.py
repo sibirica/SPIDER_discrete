@@ -7,7 +7,7 @@ from warnings import warn
 
 from numpy import inf
 
-from commons.z3_base import *
+from commons.z3base import *
 from commons.library import *
 
 @dataclass(frozen=True)
@@ -49,13 +49,13 @@ class LibraryPrime[T](EinSumExpr):
         return tuple([IndexHole()]*self.get_rank()) if self.indices is None  \
                else self.indices
 
-    def map[T2](self, *, 
+    def map[T2](self, *,
                 expr_map: Callable[[EinSumExpr[T]], EinSumExpr[T2]] = lambda x: x,
                 index_map: Callable[[T], T2] = lambda x: x) -> EinSumExpr[T2]:
-        """ Constructs a copy of self replacing (direct) child expressions according to expr_map 
+        """ Constructs a copy of self replacing (direct) child expressions according to expr_map
             and (direct) child indices according to index_map"""
         return replace(self, indices=tuple([index_map(index) for index in self.own_indices()]))
-        #return Observable(string=self.string, rank=self.get_rank(), 
+        #return Observable(string=self.string, rank=self.get_rank(),
         #                  indices=[f(index) for index in self.all_indices()])
 
 
