@@ -10,7 +10,7 @@ from collections import defaultdict, Counter
 import numpy as np
 from typing import Union
 
-from z3base import *
+from .z3base import *
 
 # increment all indices (Einstein or literal) in an expression
 def inc_inds(expr: EinSumExpr[VarIndex | LiteralIndex], shift=1):
@@ -31,7 +31,7 @@ def highest_index(indices: Iterable[VarIndex]):
 def canonicalize(expr: EinSumExpr[VarIndex]):
     if isinstance(expr, LibraryTerm):
         expr = expr.lexico_canon()
-    print(expr)
+    #print(expr)
     indexings = generate_indexings(expr)
     try:
         canon = next(indexings)
@@ -57,9 +57,9 @@ def dt(expr: EinSumExpr[VarIndex]):
             return replace(expr, derivative=dt(derivative))
         case LibraryTerm():
             pass
-        case Equation(terms=terms, ):
+        case Equation(terms=terms, coeffs=coeffs):
         # note that derivative is an Equation object in general
-            components = tuple([coeff * dt(term) for term, coeff in zip(self.terms, self.coeffs)
+            components = tuple([coeff * dt(term) for term, coeff in zip(terms, coeffs)
                           if not isinstance(term, ConstantTerm)])
             #if not components:
             #    return Equation((), ()) #None - might need an is_empty for Equation?
@@ -95,53 +95,86 @@ def dx_helper(expr: EinSumExpr[VarIndex]):
         case LibraryTerm():
             subexs = list(expr.sub_exprs())
             def dxs(subexs):
-                return (reduce(mul_helper, (*subexs[:i], dx_helper(term), *subexs[i+1:]), 
-                               ConstantTerm())
+                return (ES_prod(*subexs[:i], dx_helper(term), *subexs[i+1:])
                        for i, term in enumerate(subexs))
-            return reduce(add, dxs(subexs), Equation(coeffs=(), terms=()))
+            return ES_sum(*dxs(subexs))
         case Equation():
             components = tuple([coeff * dx_helper(term) for term, coeff in zip(expr.terms, expr.coeffs)
                       if not isinstance(term, ConstantTerm)])
-            if not components:
-                return Equation((), ())
-            return reduce(add, components)#.canonicalize()
+            return ES_sum(*components)#.canonicalize()
 
 # contract term or equation along i and j indices, setting j to i (if i<j) and moving others down by 1
 # NOT GUARANTEED TO BE CANONICAL
 def contract(expr: EinSumExpr[VarIndex], i: int, j: int):
-    num_singles = index_rank(expr.all_indices()) 
+    n_singles = index_rank(expr.all_indices()) 
+    assert i<n_singles and j<n_singles, "Can only contract single indices"
+    new_n_singles = n_singles - 2
+    new_double = new_n_singles
     if j<i:
         i, j = j, i
     def contraction_map(ind: VarIndex):
-        if ind.value==i or ind.value==j:
+        if ind.value == i or ind.value == j:
             # index_rank decreases by 2 as a result of contraction, so map new double to ir-1
-            return VarIndex(num_singles-1) 
-        if ind.value>j:
+            return VarIndex(new_double) 
+        if ind.value >= n_singles:
+            # beats 2-1 additional indices
+            return VarIndex(ind.value-1)
+        if ind.value > j:
             # beats 2 additional indices
             return VarIndex(ind.value-2)
-        if ind.value>i:
+        if ind.value > i:
             # beats 1 additional index
             return VarIndex(ind.value-1)
         return ind
     reindexed_expr = expr.map_all_indices(index_map=contraction_map).lexico_canon()
     return replace(reindexed_expr, rank=expr.rank-2)
 
-# helper function for prime/library term multiplication
-def mul_helper(a: LibraryPrime | LibraryTerm, b: LibraryPrime | LibraryTerm):
-    def cast_to_term(x):
-        if isinstance(x, ConstantTerm):
+# cast a ConstantTerm or LibraryPrime to LibraryTerm
+def cast_to_term(x: ConstantTerm | LibraryPrime | LibraryTerm):
+    match x:
+        case ConstantTerm():
             return LibraryTerm(primes=(), rank=0)
-        return x if isinstance(x, LibraryTerm) else \
-               LibraryTerm(primes=(x,), rank=x.rank)#index_rank(x.all_indices()))
-    a = cast_to_term(a)
-    b = cast_to_term(b)
-    shift = highest_index(a.all_indices()) + 1
-    product_rank = a.rank + b.rank
-    combined_primes = tuple(sorted([*(a.primes), *(inc_inds(b, shift).primes)]))
+        case LibraryPrime():
+            return LibraryTerm(primes=(x,), rank=x.rank)
+        case LibraryTerm():
+            return x
+
+def cast_to_equation(x: LibraryTerm | Equation):
+    if isinstance(x, LibraryTerm):
+        return Equation(terms=(x,), coeffs=(1,))
+    else:
+        return x
+    
+# helper function for prime/library term multiplication
+def ES_prod(*terms: ConstantTerm | LibraryPrime | LibraryTerm):
+    product_rank = 0
+    combined_primes = []
+    shift = 0
+    for t in terms:
+        t = cast_to_term(t)
+        product_rank += t.rank
+        combined_primes += inc_inds(t, shift).primes
+        shift += highest_index(t.all_indices()) + 1
+    
+    combined_primes = tuple(sorted(combined_primes))
     #print(combined_primes)
     product = LibraryTerm(primes=combined_primes, rank=product_rank)
     #print("PRECANONICAL", product)
     return canonicalize(product)
+
+# helper function for prime/library term addition
+def ES_sum(*equations: LibraryTerm | Equation):
+    equations = [cast_to_equation(eq) for eq in equations]
+    terms = tuple((term for eq in equations for term in eq.terms))
+    coeffs = tuple((coeff for eq in equations for coeff in eq.coeffs))
+    return Equation(terms, coeffs)
+
+@dataclass(frozen=True)
+class INF:
+    def __lt__(self, other):
+        return False
+    def __gt__(self, other):
+        return isinstance(other, INF)
 
 @dataclass(frozen=True)
 class DerivativeOrder[T](EinSumExpr):
@@ -152,6 +185,8 @@ class DerivativeOrder[T](EinSumExpr):
     torder: int = 0
     x_derivatives: Tuple[T]
     is_commutative: bool = True
+
+    #inf: ClassVar[INF] = field(default_factory=INF)
 
     @cached_property
     def complexity(self):
@@ -202,7 +237,8 @@ class DerivativeOrder[T](EinSumExpr):
 
     def __lt__(self, other):
         if not isinstance(other, DerivativeOrder):
-            raise TypeError(f"Operation not supported between instances of '{type(self)}' and '{type(other)}'")
+            #raise TypeError(f"Operation not supported between instances of '{type(self)}' and '{type(other)}'")
+            return NotImplemented
         return self.torder < other.torder if self.torder != other.torder \
             else self.x_derivatives < other.x_derivatives
 
@@ -233,7 +269,7 @@ class Observable[T](EinSumExpr):
     string: str  # String representing the Observable.
     rank: Union[int, SymmetryRep]
     indices: Tuple[T] = None
-    is_commutative: bool = False
+    is_commutative: bool = False # set to true for symmetric or antisymmetric
 
     @cached_property
     def complexity(self):
@@ -341,7 +377,7 @@ class LibraryPrime[T, Derivand](EinSumExpr):
         return replace(self, derivative=expr_map(self.derivative), derivand=expr_map(self.derivand))
 
     def __mul__(self, other: Union[LibraryPrime, LibraryTerm]) -> LibraryTerm:
-        return mul_helper(self, other)
+        return ES_prod(self, other)
 
 @dataclass(frozen=True, order=True)
 class LibraryTerm[T, Derivand](EinSumExpr):
@@ -387,13 +423,14 @@ class LibraryTerm[T, Derivand](EinSumExpr):
         return replace(self, primes=tuple(expr_map(prime) for prime in self.primes))
 
     def __add__(self, other): # add to LibraryTerm or Equation
-        if isinstance(other, LibraryTerm):
-            return Equation(coeffs=(1, 1), terms=(self, other))
-        else:
-            return Equation(coeffs=(1, *other.coeffs), terms=(self, *other.terms))
+        return ES_sum(self, other)
+        #if isinstance(other, LibraryTerm):
+        #    return Equation(coeffs=(1, 1), terms=(self, other))
+        #else:
+        #    return Equation(coeffs=(1, *other.coeffs), terms=(self, *other.terms))
 
     def __mul__(self, other: Union[LibraryPrime, LibraryTerm]) -> LibraryTerm:
-        return mul_helper(self, other)
+        return ES_prod(self, other)
 
     def lexico_canon(self):
         return LibraryTerm(primes=tuple(sorted(self.primes)), rank=self.rank)
@@ -415,16 +452,13 @@ class Equation[T, Derivand]:  # can represent equation (expression = 0) OR expre
         self.canonicalize()
 
     def __add__(self, other):
-        if isinstance(other, Equation):
-            return Equation(self.terms + other.terms, self.coeffs + other.coeffs)
-        else:
-            return other + self
-            #raise TypeError(f"Second argument {other}) is not an equation.")
+        return ES_sum(self, other)
+        #raise TypeError(f"Second argument {other}) is not an equation.")
 
     def __mul__(self, other):
         if isinstance(other, EinSumExpr): # multiplication by term
             # may need to canonicalize term * other - more likely not though
-            return Equation([term * other for term in self.terms], self.coeffs)
+            return Equation([ES_prod(term, other) for term in self.terms], self.coeffs)
         else:  # multiplication by number
             return Equation(self.terms, [c * other for c in self.coeffs])
 
@@ -530,7 +564,7 @@ class Equation[T, Derivand]:  # can represent equation (expression = 0) OR expre
 #         else:
 #             raise TypeError(f"Second argument {other}) is not an equation.")
 
-def yield_tuples_up_to(bounds):
+def yield_tuples_up_to(bounds): # yield cartesian product of range(bounds[i]+1) 
     if len(bounds) == 0:
         yield ()
         return
@@ -547,3 +581,29 @@ def yield_legal_tuples(bounds): # allocate observables & derivatives up to the a
     else:  # must return all derivatives immediately
         # print("Dump ORDERS")
         yield bounds
+
+def partition(n: int, k: int, weights: Optional[Tuple[int]]) -> Generator[Tuple[int], None, None]:
+    """
+    Given k bins (represented by a k-tuple), it yields every possible way to distribute x elements among those bins,
+    with x ranging from 0 to n. For example partition(n=3, k=2) -> [(0, 0), (0, 1), (0, 2), (0, 3), (1, 0), (1, 1),
+    (1, 2), (2, 0), (2, 1), (3, 0)].
+    Optional argument weights indicates that one element in bin i counts for weight[i] elements. 
+    NOTE: partition(n, 0) returns None, and partition(n, 1) is similar to range(n + 1), but the yields are wrapped in a
+    1-tuple.
+
+    :param n: Max number of elements to distribute.
+    :param k: Number of bins to distribute.
+    :return: Generator that yields all possible partitions.
+    """
+    if weights is None:
+        weights = [1]*k
+    if k < 1:
+        return
+    max = n // weights[0] + 1
+    if k == 1:
+        for i in range(max):
+            yield i,
+        return
+    for i in range(max):
+        for result in partition(n - weights[0] * i, k - 1, weights[1:]):
+            yield (i,) + result

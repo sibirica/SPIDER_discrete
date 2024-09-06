@@ -5,281 +5,162 @@ from itertools import permutations
 from numpy import inf
 import numpy as np
 
+from commons.z3base import *
 from commons.library import *
 
 
+@dataclass(frozen=True, order=True)
+class CoarseGrainedProduct[T](EinSumExpr):
+    """
+    Dataclass representing rho[product]
+    """
+    _: KW_ONLY
+    observables: Tuple[Observable]
+    is_commutative: bool = True
 
-# noinspection PyArgumentList
-@dataclass
-class LibraryPrimitive(object):
-    dorder: DerivativeOrder
-    cgp: CoarseGrainedPrimitive
-    rank: int = field(init=False)
-    complexity: int = field(init=False)
+    @cached_property
+    def complexity(self):
+        return 1+sum((observable.complexity) for observable in self.observables)
+    pass
 
-    def __post_init__(self):
-        self.rank = self.dorder.xorder + self.cgp.rank
-        self.complexity = self.dorder.complexity + self.cgp.complexity
-
-    def __repr__(self):
-        tstring, xstring = create_derivative_string(self.dorder.torder, self.dorder.xorder)
-        return f'{tstring}{xstring}{self.cgp}'
-
-    def __hash__(self):
-        return hash(self.__repr__())
-
-    # For sorting: convention is (1) in ascending order of name, (2) in *ascending* order of dorder
-
-    def __lt__(self, other):
-        if not isinstance(other, LibraryPrimitive):
-            raise TypeError("Second argument is not a LibraryPrimitive.")
-        if self.cgp == other.cgp:
-            return self.dorder < other.dorder
-        else:
-            return self.cgp < other.cgp
-
-    def __gt__(self, other):
-        if not isinstance(other, LibraryPrimitive):
-            raise TypeError("Second argument is not a LibraryPrimitive.")
-        return other.__lt__(self)
-
-    def __eq__(self, other):
-        if not isinstance(other, LibraryPrimitive):
-            raise TypeError("Second argument is not a LibraryPrimitive.")
-        return self.cgp == other.cgp and self.dorder == other.dorder
-
-    def __ne__(self, other):
-        return not self.__eq__(other)
-
-    def dt(self):
-        return LibraryPrimitive(self.dorder.dt(), self.cgp)
-
-    def dx(self):
-        return LibraryPrimitive(self.dorder.dx(), self.cgp)
-
-    def index_canon(self, inds): # FOR POLYMORPHIC COMPATIBILITY
-        return self.cgp.index_canon(inds)
-
-# (1) Evaluation will need some rework to account for repetitions both within derivatives and coarse-grained primitive
-class IndexedPrimitive(LibraryPrimitive):
-    def __init__(self, prim, space_orders=None, obs_dims=None, newords=None):
-        # obs_dims should be a flat list
-        # however, it will be converted tо nested list where inner lists correspond to indices of observable
-        self.dorder = prim.dorder
-        self.cgp = prim.cgp
-        self.rank = prim.rank
-        self.complexity = prim.complexity
-        if newords is None:  # normal constructor
-            self.dimorders = space_orders + [self.dorder.torder]
-            self.obs_dims = obs_dims
-        else:  # modifying constructor
-            self.dimorders = newords
-            self.obs_dims = prim.obs_dims
-        self.ndims = len(self.dimorders)
-        self.nderivs = sum(self.dimorders)
+    @cached_property
+    def rank(self): # only defined for VarIndex at the moment
+        return index_rank(self.all_indices())
 
     def __repr__(self):
-        torder = self.dimorders[-1]
-        xstring = ""
-        for i in range(len(self.dimorders) - 1):
-            let = dim_to_let[i]
-            xorder = self.dimorders[i]
-            if xorder == 0:
-                xstring += ""
-            elif xorder == 1:
-                xstring += f"d{let} "
-            else:
-                xstring += f"d{let}^{xorder} "
-        if torder == 0:
-            tstring = ""
-        elif torder == 1:
-            tstring = "dt "
-        else:
-            tstring = f"dt^{torder} "
-        return f'{tstring}{xstring}{self.cgp.index_str(self.obs_dims, coord=True)}'
+        return f"ρ[{' · '.join([repr(obs) for obs in self.observables])}]"
 
-    def __hash__(self):
-        #return hash(self.__repr__())
-        return hash(self.cgp.index_str(self.obs_dims, coord=True))
-        
-    def __eq__(self, other):
-        return (self.dimorders == other.dimorders and self.cgp == other.cgp
-                and self.obs_dims == other.obs_dims)
+    def sub_exprs(self) -> Iterable[T]:
+        return self.observables
 
-    def succeeds(self, other, dim):
-        copyorders = copy.deepcopy(self.dimorders)
-        copyorders[dim] += 1
-        return copyorders == other.dimorders and self.cgp == other.cgp and self.obs_dims == other.obs_dims
+    def own_indices(self) -> Iterable[T]:
+        return ()
 
-    def diff(self, dim):
-        newords = copy.deepcopy(self.dimorders)
-        newords[dim] += 1
-        return IndexedPrimitive(self, newords=newords)
+    def map[T2](self, *,
+                expr_map: Callable[[EinSumExpr[T]], EinSumExpr[T2]] = lambda x: x,
+                index_map: Callable[[T], T2] = lambda x: x) -> EinSumExpr[T2]:
+        """ Constructs a copy of self replacing (direct) child expressions according to expr_map
+            and (direct) child indices according to index_map"""
+        return replace(self, observables=tuple(expr_map(obs) for obs in self.observables))
 
-    def __mul__(self, other):
-        if isinstance(other, IndexedTerm):
-            return IndexedTerm(obs_list=[self] + other.obs_list)
-        else:
-            return IndexedTerm(obs_list=[self] + [other])
+# # return LibraryTensors with fixed allocation of complexity
+# def raw_library_tensors(observables, orders, rank, max_order=None, zeroidx=0): 
+#     # basically: iteratively take any possible subset from [obs_orders; nrho; nt; nx] 
+#     # as long as it's lexicographically less than previous order; take at least one of first observable
 
+#     # print(orders, max_order, zeroidx)
+#     n = len(observables)
+#     if orders[n] == 0:
+#         if sum(orders) > 0:  # invalid distribution
+#             return
+#         else:
+#             yield ConstantTerm()
+#             return
+#     while zeroidx < n and orders[zeroidx] == 0:
+#         zeroidx += 1
+#     if zeroidx < n:
+#         orders[zeroidx] -= 1  # always put in at least one of these to maintain lexicographic order
 
-class LibraryTensor(object):  # unindexed version of LibraryTerm
-    def __init__(self, observables):
-        if isinstance(observables,
-                      LibraryPrimitive):  # constructor for library terms consisting of a primitive w/ some derivatives
-            self.obs_list = [observables]
-        else:  # constructor for library terms consisting of a product
-            self.obs_list = observables
-        self.rank = sum([obs.rank for obs in self.obs_list])
-        self.complexity = sum([obs.complexity for obs in self.obs_list])
+#     # orders = obs_orders + [nt, nx]
+#     # print("ORDERS: ", orders)
+#     for tup in yield_legal_tuples(orders[:n] + [0] + orders[n + 1:]):  # ignore the rho index which is deducted automatically
+#         orders_copy = orders.copy()
+#         popped_orders = list(tup)
+#         # print("Popped: ", popped_orders)
+#         for i in range(len(orders)):
+#             orders_copy[i] -= popped_orders[i]
+#         # all observables + rho popped but derivatives remain
+#         if sum(orders_copy[:-2]) == 0 and sum(orders_copy[-2:]) > 0:  
+#             continue  # otherwise we will have duplicates from omitting some derivatives
+#         if zeroidx < n:
+#             popped_orders[zeroidx] += 1  # re-adding the one
+#         orders_copy[n] -= 1  # account for the rho we used
+#         popped_orders[n] += 1  # include the rho here as well
+#         po_cl = tuple(popped_orders)
+#         if max_order is None or po_cl <= max_order:
+#             obs_list = []
+#             for i, order in enumerate(popped_orders[:-3]):  # rho appears automatically so stop at -3
+#                 obs_list += [observables[i]] * order
+#             cgp = CoarseGrainedPrimitive(obs_list[::-1])  # flip order of observables back to ascending
+#             do = DerivativeOrder(popped_orders[-2], popped_orders[-1])
+#             prim = LibraryPrimitive(do, cgp)
+#             term1 = LibraryTensor(prim)
+#             # for term2 in raw_library_tensors(observables, orders[:-2], orders[-2], orders[-1], max_order=max_order):
+#             for term2 in raw_library_tensors(observables, orders_copy, po_cl, zeroidx):
+#                 yield term2 * term1  # reverse order here to match canonicalization rules!
 
-    def __mul__(self, other):
-        if isinstance(other, LibraryTensor):
-            return LibraryTensor(self.obs_list + other.obs_list)
-        elif other == 1:
-            return self
-        else:
-            raise TypeError(f"Cannot multiply {type(self)}, {type(other)}")
+def generate_terms_to(order: int,
+                      observables: List[Observable],
+                      max_rank: int = 2,
+                      max_observables: int = 999,
+                      max_rho: int = 999) -> List[Union[ConstantTerm, LibraryTerm]]:
+    """
+    Given a list of Observable objects and a complexity order, returns the list of all LibraryTerms with complexity up to order and rank up to max_rank using at most max_observables copies of the observables.
 
-    def __rmul__(self, other):
-        if other != 1:
-            return other.__mul__(self)
-        else:
-            return self
-
-    def __repr__(self):
-        repstr = [str(obs) + ' * ' for obs in self.obs_list]
-        return reduce(add, repstr)[:-3]
-
-class IndexedTerm(object):  # LibraryTerm with i's mapped to x/y/z
-    def __init__(self, libterm=None, space_orders=None, nested_obs_dims=None, obs_list=None):
-        if obs_list is None:  # normal "from scratch" constructor
-            self.rank = libterm.rank
-            self.complexity = libterm.complexity
-            nterms = len(libterm.obs_list)
-            self.obs_list = copy.deepcopy(libterm.obs_list)
-            for i, obs, sp_ord, obs_dims in zip(range(nterms), libterm.obs_list, space_orders, nested_obs_dims):
-                self.obs_list[i] = IndexedPrimitive(obs, sp_ord, obs_dims)
-            self.ndims = len(space_orders[0]) + 1
-            self.nderivs = np.max([p.nderivs for p in self.obs_list])
-        else:  # direct constructor from observable list
-            # print(obs_list)
-            if len(obs_list) > 0:  # if term is not simply equal to 1
-                self.rank = obs_list[0].rank
-                self.ndims = obs_list[0].ndims
-                self.obs_list = obs_list
-                self.complexity = sum([obs.complexity for obs in obs_list])
-                self.nderivs = np.max([p.nderivs for p in self.obs_list])
-            else:
-                self.obs_list = []
-                self.ndims = 0
-                self.nderivs = 0
-                self.complexity = 0
-
-    def __repr__(self):
-        repstr = [str(obs) + ' * ' for obs in self.obs_list]
-        return reduce(add, repstr)[:-3]
-
-    def __mul__(self, other):
-        if isinstance(other, IndexedTerm):
-            return IndexedTerm(obs_list=self.obs_list + other.obs_list)
-        else:
-            return IndexedTerm(obs_list=self.obs_list + [other])
-
-    def drop(self, obs):  # remove one instance of obs
-        obs_list_copy = copy.deepcopy(self.obs_list)
-        if len(obs_list_copy) > 1:
-            obs_list_copy.remove(obs)
-        else:
-            obs_list_copy = []
-        return IndexedTerm(obs_list=obs_list_copy)
-
-    def drop_all(self, obs):  # remove *aLL* instances of obs
-        if len(self.obs_list) > 1:
-            obs_list_copy = list(filter(obs.__ne__, self.obs_list))
-        else:
-            obs_list_copy = []
-        return IndexedTerm(obs_list=obs_list_copy)
-
-    def diff(self, dim):
-        for i, obs in enumerate(self.obs_list):
-            yield obs.diff(dim) * self.drop(obs)
-
-# return LibraryTensors with fixed allocation of complexity
-def raw_library_tensors(observables, orders, max_order=None, zeroidx=0): 
-    # basically: iteratively take any possible subset from [obs_orders; nrho; nt; nx] 
-    # as long as it's lexicographically less than previous order; take at least one of first observable
-
-    # print(orders, max_order, zeroidx)
-    n = len(observables)
-    if orders[n] == 0:
-        if sum(orders) > 0:  # invalid distribution
-            return
-        else:
-            yield 1
-            return
-    while zeroidx < n and orders[zeroidx] == 0:
-        zeroidx += 1
-    if zeroidx < n:
-        orders[zeroidx] -= 1  # always put in at least one of these to maintain lexicographic order
-
-    # orders = obs_orders + [nt, nx]
-    # print("ORDERS: ", orders)
-    for tup in yield_legal_tuples(orders[:n] + [0] + orders[n + 1:]):  # ignore the rho index which is deducted automatically
-        orders_copy = orders.copy()
-        popped_orders = list(tup)
-        # print("Popped: ", popped_orders)
-        for i in range(len(orders)):
-            orders_copy[i] -= popped_orders[i]
-        if sum(orders_copy[:-2]) == 0 and sum(
-                orders_copy[-2:]) > 0:  # all observables + rho popped but derivatives remain
-            continue  # otherwise we will have duplicates from omitting derivatives
-        if zeroidx < n:
-            popped_orders[zeroidx] += 1  # re-adding the one
-        orders_copy[n] -= 1  # account for the rho we used
-        popped_orders[n] += 1  # include the rho here as well
-        po_cl = CompList(popped_orders)
-        if max_order is None or po_cl <= max_order:
-            obs_list = []
-            for i, order in enumerate(popped_orders[:-3]):  # rho appears automatically so stop at -3
-                obs_list += [observables[i]] * order
-            cgp = CoarseGrainedPrimitive(obs_list[::-1])  # flip order of observables back to ascending
-            do = DerivativeOrder(popped_orders[-2], popped_orders[-1])
-            prim = LibraryPrimitive(do, cgp)
-            term1 = LibraryTensor(prim)
-            # for term2 in raw_library_tensors(observables, orders[:-2], orders[-2], orders[-1], max_order=max_order):
-            for term2 in raw_library_tensors(observables, orders_copy, po_cl, zeroidx):
-                yield term2 * term1  # reverse order here to match canonicalization rules!
-
-def generate_terms_to(order, observables=None, max_observables=999, max_rho=999):
-    # note: this ignores the fact that rho operator adds complexity, but you can filter by complexity later
-    observables = sorted(observables, reverse=True)  # ordering opposite of canonicalization rules for now
+    :param order: Max complexity order that terms will be generated to.
+    :param observables: list of Observable objects used to construct the terms.
+    :param max_observables: Maximum number of Observables (and derivatives) in a single term.
+    :return: List of all possible LibraryTerms whose complexity is less than or equal to order, that can be generated
+    using the given observables.
+    """
+    #observables = sorted(observables, reverse=True) # make sure observables are in reverse order
     libterms = list()
-    libterms.append(ConstantTerm())
+    #libterms.append(ConstantTerm()) # ConstantTerm doesn't exist in discrete language
     n = order  # max number of "blocks" to include
     k = len(observables)
-    partitions = partition(n, k + 3)  # k observables + rho + 2 derivative dimensions
-    # not a valid term if no observables or max exceeded
-    for part in partitions:
-        if part[k] > 0 and sum(part[:k]) <= max_observables and part[k] <= max_rho:  # popped a rho, did not exceed max observables
-            # nt, nx = part[-2:]
-            # obs_orders = part[:-2]
-            # for tensor in raw_library_tensors(observables, obs_orders, nt, nx):
-            # print("\n\n\n")
-            # print("Partition:", part)
-            for tensor in raw_library_tensors(observables, list(part)):
-                if tensor.complexity <= order:  # this may not be true since we set complexity of rho[1]>1
-                    # print("Tensor", tensor)
-                    # print("List of labels", list_labels(tensor))
-                    for label in list_labels(tensor):
-                        # print("Label", label)
-                        index_list = labels_to_index_list(label, len(tensor.obs_list))
-                        # print("Index list", index_list)
-                        for lt in get_library_terms(tensor, index_list):
-                            # print("LT", lt)
-                            # note: not sure where to put this check
-                            canon = lt.canonicalize()
-                            if lt.is_canonical:
-                                # print("is canonical")
-                                libterms.append(lt)
+    partitions = [] # to make sure we don't duplicate partitions
+    weights = [obs.complexity for obs in observables] + [1, 1] # complexities of each symbol
+    # generate partitions in bijection to all possible primes
+    for part in partition(n - 1, k + 2, weights=weights):  # k observables + 2 derivative dimensions, plus always 1 rho
+        # account for complexities > 1
+        #part = tuple([1]+list(part)) # ordering: [rho | observables | nt, nx]
+        if sum(part[:k]) <= max_observables:
+            # if part in partitions:
+            #     continue
+            # else:
+            partitions.append(part)
+            # print(part)
+    
+    partitions = sorted(partitions)
+    primes = [partition_to_prime(partition) for partition in partitions]
+
+    def partition_to_prime(partition):
+        prime_observables = []
+        for i in range(k):
+            prime_observables += [observables[i]] * partition[i]
+        cgp = CoarseGrainedProduct(primes=tuple(prime_observables))
+        derivative = DerivativeOrder.blank_derivative(torder=partition[-2], xorder=partition[-1])
+        prime = LibraryPrime(derivative=derivative, derivand=cgp)
+        return prime
+
+    # make all possible lists of primes and convert to terms of each rank, then generate labelings
+    for prime_list in valid_prime_lists(primes, order, rank, max_observables, max_rho):
+        for rank in range(max_rank + 1):
+            term = LibraryTerm(primes=prime_list, rank=rank)
+            for labeled in generate_indexings(term):
+                #canon = labeled.canonicalize()
+                #libterms.append(canon)
+                libterms.append(labeled) # terms should already be in canonical form  
     return libterms
+
+def valid_prime_lists(primes: List[LibraryPrime],
+                      order: int,
+                      max_observables: int,
+                      max_rho: int) -> List[Union[ConstantTerm, LibraryTerm]]:
+    # starting_ind: int
+    """
+    Generate components of valid terms from list of primes, with maximum complexity = order, maximum number of observables = max_observables, max number of primes = max_rho.
+    """
+    # , and using only primes starting from index starting_ind.
+    for i, prime in enumerate(primes): # relative_i
+        #absolute_i = relative_i + starting_ind
+        complexity = prime.complexity
+        n_observables = len(prime.observables)
+        if complexity <= order and n_observables <= max_observables and 1 <= max_rho:
+            for tail in valid_prime_lists(primes=primes[i:], order=order-complexity,
+                                          max_observables=max_observables-n_observables, max_rho=max_rho-1)
+                yield (prime,) + tail
+        # base case: yield no primes
+        yield ()
+        
+def valid_prime_lists                              
