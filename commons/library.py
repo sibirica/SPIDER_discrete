@@ -10,7 +10,7 @@ from collections import defaultdict, Counter
 import numpy as np
 from typing import Union
 
-from .z3base import *
+from commons.z3base import *
 
 # increment all indices (Einstein or literal) in an expression
 def inc_inds(expr: EinSumExpr[VarIndex | LiteralIndex], shift=1):
@@ -174,7 +174,19 @@ class INF:
     def __lt__(self, other):
         return False
     def __gt__(self, other):
+        return not isinstance(other, INF)
+    def __le__(self, other):
         return isinstance(other, INF)
+    def __ge__(self, other):
+        return True
+
+def exp_string(num):
+    if num == 1:
+        return ""
+    elif num < 9:
+        return "**²³⁴⁵⁶⁷⁸⁹"[num]
+    else:
+        return f"^{num}"
 
 @dataclass(frozen=True)
 class DerivativeOrder[T](EinSumExpr):
@@ -184,7 +196,7 @@ class DerivativeOrder[T](EinSumExpr):
     _: KW_ONLY
     torder: int = 0
     x_derivatives: Tuple[T]
-    is_commutative: bool = True
+    can_commute_indices: bool = True
 
     #inf: ClassVar[INF] = field(default_factory=INF)
 
@@ -220,19 +232,14 @@ class DerivativeOrder[T](EinSumExpr):
     def __repr__(self):
         if self.torder == 0:
             tstring = ""
-        elif self.torder == 1:
-            tstring = "∂t "
         else:
-            tstring = f"∂t^{self.torder} "
+            tstring = f"∂t{exp_string(self.torder)} "
         xstring = ""
         if self.xorder != 0:
             ind_counter = Counter(self.x_derivatives)
             for ind in sorted(ind_counter.keys()):
                 count = ind_counter[ind]
-                if count == 1:
-                    xstring += f"∂{ind} "
-                else:
-                    xstring += f"∂{ind}^{count} "
+                xstring += f"∂{ind}{exp_string(count)} "
         return (tstring + xstring)[:-1] # get rid of the trailing space
 
     def __lt__(self, other):
@@ -241,6 +248,9 @@ class DerivativeOrder[T](EinSumExpr):
             return NotImplemented
         return self.torder < other.torder if self.torder != other.torder \
             else self.x_derivatives < other.x_derivatives
+
+    def __le__(self, other):
+        return self < other or self == other
 
     def sub_exprs(self) -> Iterable[T]:
         return ()
@@ -257,7 +267,6 @@ class DerivativeOrder[T](EinSumExpr):
             and (direct) child indices according to index_map"""
         return replace(self, x_derivatives=tuple([index_map(index) for index in self.own_indices()]))
 
-## MAY WANT TO OVERRIDE CANONICAL_INDEXING_PROBLEM FOR OBSERVABLES WITH SYMMETRY REPRESENTATION... OR JUST CHANGE IS_COMMUTATIVE (EASIER)
 @dataclass(frozen=True)
 class Observable[T](EinSumExpr):
     """
@@ -269,11 +278,11 @@ class Observable[T](EinSumExpr):
     string: str  # String representing the Observable.
     rank: Union[int, SymmetryRep]
     indices: Tuple[T] = None
-    is_commutative: bool = False # set to true for symmetric or antisymmetric
+    can_commute_indices: bool = False # set to true for symmetric or antisymmetric
 
     @cached_property
     def complexity(self):
-        return self.rank
+        return max(self.rank, 1)
 
     # For sorting: convention is in ascending order of name
 
@@ -331,7 +340,7 @@ class LibraryPrime[T, Derivand](EinSumExpr):
     _: KW_ONLY
     derivative: DerivativeOrder
     derivand: Derivand
-    is_commutative: bool = False
+    can_commute_exprs: bool = False
 
     @cached_property
     def complexity(self):
@@ -387,7 +396,6 @@ class LibraryTerm[T, Derivand](EinSumExpr):
     _: KW_ONLY
     primes: Tuple[LibraryPrime[T, Derivand]]
     rank: Union[int, SymmetryRep]
-    is_commutative: bool = True
 
     @cached_property
     def complexity(self):
@@ -544,25 +552,6 @@ class Equation[T, Derivand]:  # can represent equation (expression = 0) OR expre
             raise ValueError("Equation contains more than one distinct term")
         else:
             return canonicalize(self.terms[0]) # may need structural canonicalization too - check
-
-# class TermSum(Equation):
-#     def __init__(self, terms):  # terms are LibraryTerms, coeffs are real numbers
-#         self.terms = sorted(terms)
-#         self.coeffs = [1] * len(terms)
-#         self.rank = terms[0].rank
-
-#     def __repr__(self):
-#         repstr = ' + '.join([str(term) for term in self.terms])
-#         return repstr
-
-#     def __add__(self, other):
-#         #if isinstance(other, TermSum):
-#         #    return TermSum(self.terms + other.terms)
-#         #elif isinstance(other, Equation):
-#         if isinstance(other, Equation):
-#             return Equation(self.terms + other.terms, self.coeffs + other.coeffs)
-#         else:
-#             raise TypeError(f"Second argument {other}) is not an equation.")
 
 def yield_tuples_up_to(bounds): # yield cartesian product of range(bounds[i]+1) 
     if len(bounds) == 0:
