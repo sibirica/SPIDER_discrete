@@ -115,12 +115,12 @@ class FactoredTensorWeight(TensorWeight):
         return FactoredTensorWeight(weight_dict, rank, n_dimensions, base_weight, tensor)
 
 @dataclass
-class TensorWeightStack: # stack of TensorWeights to span desired space
+class TensorWeightBasis: # stack of TensorWeights to span desired space
     tw_list: list[TensorWeight]
     nonzero_indices: list[list[int]] # indices that need to be evaluated in product with this TensorWeight
 
     @staticmethod
-    def make_stack(base_weight, n_dimensions, irrep): # choose TWS constructor based on irrep
+    def make_basis(base_weight, n_dimensions, irrep): # choose TWS constructor based on irrep
         match irrep:
             case int():
                 return full_stack(base_weight, n_dimensions, irrep)
@@ -143,7 +143,7 @@ class TensorWeightStack: # stack of TensorWeights to span desired space
     def scalar_stack(base_weight):
         tw = TensorWeight((), 0, None)
         nz_inds = [()]
-        return TensorWeightStack([tw], nz_inds)
+        return TensorWeightBasis([tw], nz_inds)
     
     @staticmethod
     def ones_vector_stack(base_weight, n_dimensions):
@@ -153,7 +153,7 @@ class TensorWeightStack: # stack of TensorWeights to span desired space
             tensor[i] = 1
             tw_list.append(constant_tw(base_weight, tensor))
         nz_inds = [(i,) for i in range(n_dimensions)]
-        return TensorWeightStack(tw_list)
+        return TensorWeightBasis(tw_list)
 
     # see https://physics.stackexchange.com/questions/770127/some-intuitions-for-irreducible-representations-so3-in-classical-physics
     @staticmethod
@@ -176,7 +176,7 @@ class TensorWeightStack: # stack of TensorWeights to span desired space
                 tensor[j, i] = 1
                 tw_list.append(constant_tw(base_weight, tensor))
                 nz_inds += [(i, j), (j, i)]
-        return TensorWeightStack(tw_list)
+        return TensorWeightBasis(tw_list)
 
     @staticmethod
     def anti_rank2_stack(base_weight, n_dimensions): # form all basis elements for rank 2 antisymmetric irrep
@@ -191,7 +191,7 @@ class TensorWeightStack: # stack of TensorWeights to span desired space
                 tensor[j, i] = -1
                 tw_list.append(constant_tw(base_weight, tensor))
                 nz_inds += [(i, j), (j, i)]
-        return TensorWeightStack(tw_list)
+        return TensorWeightBasis(tw_list)
 
     @staticmethod
     def full_stack(base_weight, n_dimensions, rank): # form all basis elements for rank n
@@ -203,7 +203,7 @@ class TensorWeightStack: # stack of TensorWeights to span desired space
             tensor[it.multi_index] = 1
             tw_list.append(constant_tw(base_weight, tensor))
             nz_inds.append(it.multi_index)
-        return TensorWeightStack(tw_list, nz_inds)
+        return TensorWeightBasis(tw_list, nz_inds)
 
 def lists_for_N(nloops, loop_max):
     if nloops == 0:
@@ -236,7 +236,7 @@ class AbstractDataset(object): # template for structure of all data associated w
     dxs: List[float] = None # grid spacings
     weight_dxs: List[float] = None
     scalar_weights: List[Weight] = None
-    tensor_weight_stacks: Dict[Tuple[Union[int, Irrep, Weight]], TensorWeightStack] # (irrep, weight) -> stack
+    tensor_weight_basis: Dict[Tuple[Union[int, Irrep, Weight]], TensorWeightBasis] # (irrep, weight) -> stack
     # size of domain in grid units (NOT SUBGRID UNITS, AS ACTUALLY USED IN DISCRETE COMPUTATION)
     domain_size: List[float] = None 
     domains: List[IntegrationDomain] = None
@@ -271,7 +271,7 @@ class AbstractDataset(object): # template for structure of all data associated w
             weight = Weight([m] * self.n_dimensions, q, [0] * self.n_dimensions, dxs=self.weight_dxs))
             self.weights.append(weight)
             for irrep in self.irreps:
-                self.tensor_weight_stacks[irrep, weight] = TensorWeightStack.make_stack(weight, self.n_dimensions, irrep):
+                self.tensor_weight_basis[irrep, weight] = TensorWeightBasis.make_basis(weight, self.n_dimensions, irrep):
 
     # generate indexed term/weight pairs corresponding to concrete index of unindexed term
     def get_tw_pairs(self, term, base_weight, indices, debug=False): 
@@ -345,10 +345,10 @@ class AbstractDataset(object): # template for structure of all data associated w
     #     for domain in domains:
     #         for term in self.libs[irrep].terms:
     #             for weight in self.weights:
-    #                 for tensor_weight in self.tensor_weight_stacks[irrep, weight]: 
+    #                 for tensor_weight in self.tensor_weight_basis[irrep, weight]: 
     #                     yield (term, tensor_weight, domain)
 
-    def make_Q(self, irrep, by_parts=True, debug=False):
+    def make_Q(self, irrep, by_parts=True, debug=False): # compute Q matrix for given irrep
         #for tensor(term, tensor_weight, domain) in self.tuple_iterator(irrep):
         cols_list = []
         n_spatial_dims = self.n_dimensions-1
@@ -360,8 +360,15 @@ class AbstractDataset(object): # template for structure of all data associated w
                 column = []
                 pv_dict = dict()
                 for weight in self.weights:
-                    for tensor_weight in self.tensor_weight_stacks[irrep, weight]:    
-                        if self.metric_is_identity:
+                    for tensor_weight in self.tensor_weight_basis[irrep, weight]:
+                        # compute weight(term) on each domain: w(t)|d = sum_(wi'(ti'))|d
+                        mod_terms, mod_weights = 
+                        wtd = self.eval_on_domain()
+                        
+                        
+                        
+                        
+                        if self.metric_is_identity: # don't evaluate each index of term if they vanish due to symmetry
                             evaled_term_indices = tensor_weight.nonzero_indices
                         else: # there are better optimizations based on nonzero entries of metric but we will not include them
                             evaled_term_indices = lists_for_N(tensor_weight.rank, n_spatial_dims-1)
@@ -391,6 +398,8 @@ class AbstractDataset(object): # template for structure of all data associated w
                         for domain in domains:
                             arr = self.shortcut_trace(pv_dict[tensor_weight, domain], tensor_weight.tensor)
                             column.append(int_arr(arr, self.dxs)) # integrate the product array
+
+                
                 cols_list.append(column)
         return np.ndarray(cols_list).transpose # convert to numpy array
         
@@ -427,7 +436,7 @@ def get_slice(arr, domain):
         arr_slice = arr_slice[tuple(idx)]
     return arr_slice
 
-def int_arr(arr, dxs=None):  # integrate the output of eval_term with respect to weight function
+def int_arr(arr, dxs=None):  # integrate an array of values on an integration domain
     if dxs is None:
         dxs = [1] * len(arr.shape)
     dx = dxs[0]
@@ -450,7 +459,8 @@ def int_by_parts(term, weight, dim=0):
 
 
 # for integration by parts, check terms that look like x', x*x', and x*x*x' (vs all other terms have derivative orders
-# smaller by at least 2) this misses out on opportunities to integrate by parts using a different basis, but this seems
+# smaller by at least 2) 
+# maybe his misses out on opportunities to integrate by parts using a different basis, but this seems
 # too difficult to automate; at that point it's probably easier to just write the term out manually.
 def int_by_parts_dim(term, weight, dim):
     # find best term to base integration off of

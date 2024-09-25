@@ -2,7 +2,7 @@ import copy
 from functools import reduce
 from operator import add
 from itertools import permutations
-from numpy import inf
+from numpy import prod
 import numpy as np
 
 from commons.z3base import *
@@ -41,6 +41,11 @@ class CoarseGrainedProduct[T](EinSumExpr):
         """ Constructs a copy of self replacing (direct) child expressions according to expr_map
             and (direct) child indices according to index_map"""
         return replace(self, observables=tuple(expr_map(obs) for obs in self.observables))
+
+    def eq_canon(self):
+        ecs = [obs.eq_canon() for obs in self.observables]
+        sign = prod([pair[1] for pair in ecs], initial=1)
+        return CoarseGrainedProduct(observables=tuple(sorted([pair[0] for pair in ecs]))), sign
 
 # # return LibraryTensors with fixed allocation of complexity
 # def raw_library_tensors(observables, orders, rank, max_order=None, zeroidx=0): 

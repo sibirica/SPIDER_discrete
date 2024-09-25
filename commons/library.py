@@ -3,11 +3,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field, replace, KW_ONLY
 from typing import List, Dict, Union, Tuple, Iterable, Generator
 from itertools import permutations
-from functools import cached_property, reduce
+from functools import cached_property, reduce, lru_cache
 from operator import add
 from collections import defaultdict, Counter
 
 import numpy as np
+from numpy import prod
 from typing import Union
 
 from commons.z3base import *
@@ -15,8 +16,8 @@ from commons.z3base import *
 # increment all indices (Einstein or literal) in an expression
 def inc_inds(expr: EinSumExpr[VarIndex | LiteralIndex], shift=1):
     return expr.map_all_indices(lambda ind: replace(ind, value=ind.value + shift))
-    return expr.map(expr_map=inc_inds,
-                    index_map=lambda ind: replace(ind, value=ind.value + shift))
+    #return expr.map(expr_map=inc_inds,
+    #                index_map=lambda ind: replace(ind, value=ind.value + shift))
 
 # get rank of an expression by looking at the indices of an Einstein expression
 def index_rank(indices: Iterable[VarIndex]):
@@ -30,7 +31,7 @@ def highest_index(indices: Iterable[VarIndex]):
 
 def canonicalize(expr: EinSumExpr[VarIndex]):
     if isinstance(expr, LibraryTerm):
-        expr = expr.lexico_canon()
+        expr, sign = expr.eq_canon()
     #print(expr)
     indexings = generate_indexings(expr)
     try:
@@ -47,6 +48,13 @@ def canonicalize(expr: EinSumExpr[VarIndex]):
     #assert next(indexings, -1) == -1, "Expected only one canonical indexing"
     return canon
 
+# def eq_canon(expr: EinSumExpr[VarIndex | LiteralIndex]):
+#     sorted_inds = sorted(expr.own_indices()) if expr.can_commute_indices else expr.own_indices()
+#     sorted_exprs = sorted(expr.sub_exprs()) if expr.can_commute_exprs else expr.sub_exprs()
+#     ind_perm = {i: j for i, j in zip(expr.own_indices(), sorted_inds)}
+#     expr_perm = {i: j for i, j in zip(expr.sub_exprs(), sorted_exprs)}
+#     return expr.map(expr_map=lambda e:expr_perm.get(e, e), index_map=lambda i:ind_perm.get(i, i))
+
 def dt(expr: EinSumExpr[VarIndex]):
     match expr:
         case Observable():
@@ -56,7 +64,11 @@ def dt(expr: EinSumExpr[VarIndex]):
         case LibraryPrime(derivative=derivative):
             return replace(expr, derivative=dt(derivative))
         case LibraryTerm():
-            pass
+            subexs = list(expr.sub_exprs())
+            def dts(subexs):
+                return (ES_prod(*subexs[:i], dt(term), *subexs[i+1:])
+                       for i, term in enumerate(subexs))
+            return ES_sum(*dts(subexs))
         case Equation(terms=terms, coeffs=coeffs):
         # note that derivative is an Equation object in general
             components = tuple([coeff * dt(term) for term, coeff in zip(terms, coeffs)
@@ -126,7 +138,7 @@ def contract(expr: EinSumExpr[VarIndex], i: int, j: int):
             # beats 1 additional index
             return VarIndex(ind.value-1)
         return ind
-    reindexed_expr = expr.map_all_indices(index_map=contraction_map).lexico_canon()
+    reindexed_expr, sign = expr.map_all_indices(index_map=contraction_map).eq_canon()
     return replace(reindexed_expr, rank=expr.rank-2)
 
 # cast a ConstantTerm or LibraryPrime to LibraryTerm
@@ -198,8 +210,6 @@ class DerivativeOrder[T](EinSumExpr):
     x_derivatives: Tuple[T]
     can_commute_indices: bool = True
 
-    #inf: ClassVar[INF] = field(default_factory=INF)
-
     @cached_property
     def complexity(self):
         return self.torder+self.xorder
@@ -267,6 +277,10 @@ class DerivativeOrder[T](EinSumExpr):
             and (direct) child indices according to index_map"""
         return replace(self, x_derivatives=tuple([index_map(index) for index in self.own_indices()]))
 
+    def eq_canon(self):
+        xd = tuple(sorted(self.x_derivatives))
+        return DerivativeOrder(torder=self.torder, x_derivatives=xd), 1
+
 @dataclass(frozen=True)
 class Observable[T](EinSumExpr):
     """
@@ -279,6 +293,7 @@ class Observable[T](EinSumExpr):
     rank: Union[int, SymmetryRep]
     indices: Tuple[T] = None
     can_commute_indices: bool = False # set to true for symmetric or antisymmetric
+    antisymmetric: bool = False
 
     @cached_property
     def complexity(self):
@@ -310,6 +325,22 @@ class Observable[T](EinSumExpr):
             and (direct) child indices according to index_map"""
         return replace(self, indices=tuple([index_map(index) for index in self.own_indices()]))
 
+    def eq_canon(self):
+        inds = self.indices
+        if self.can_commute_indices:
+            inds = tuple(sorted(inds))
+        sign = parity(self.indices, inds) if self.antisymmetric else 1
+        #print(self.indices, inds, sign)
+        return Observable(string=self.string, indices=inds, rank=self.rank, 
+                          can_commute_indices=self.can_commute_indices, antisymmetric=self.antisymmetric), sign
+
+def parity(old_list, new_list): # return -1 for odd permutation, +1 for even
+    zipped = list(zip(old_list, new_list))
+    #signs = [-1 for (ox,nx) in zipped for (oy,ny) in zipped if ox<oy and nx>ny]
+    return prod([-1 for (ox,nx) in zipped for (oy,ny) in zipped if ox<oy and nx>ny], initial=1)
+    #print(signs)
+    return prod(signs, initial=1)
+
 @dataclass(frozen=True)
 class ConstantTerm(Observable):
     """ Short-hand for constant term = 1 """
@@ -331,6 +362,9 @@ class ConstantTerm(Observable):
 
     def __rmul__(self, other):
         return other
+
+    def eq_canon(self):
+        return self, 1
 
 @dataclass(frozen=True)
 class LibraryPrime[T, Derivand](EinSumExpr):
@@ -355,8 +389,14 @@ class LibraryPrime[T, Derivand](EinSumExpr):
     def __lt__(self, other):
         if not isinstance(other, LibraryPrime):
             raise TypeError(f"Operation not supported between instances of '{type(self)}' and '{type(other)}'")
-        if self.derivand.string != other.derivand.string:
+        
+         # continuous case
+        if hasattr(self.derivand, 'string') and self.derivand.string != other.derivand.string:
             return self.derivand.string < other.derivand.string
+        # discrete case
+        elif hasattr(self.derivand, 'observables') and self.derivand.observables != other.derivand.observables: 
+            return self.derivand.observables < other.derivand.observables
+            
         self_orders = (self.derivative.torder, self.derivative.xorder)
         other_orders = (other.derivative.torder, other.derivative.xorder)
         if self_orders != other_orders:
@@ -388,6 +428,10 @@ class LibraryPrime[T, Derivand](EinSumExpr):
     def __mul__(self, other: Union[LibraryPrime, LibraryTerm]) -> LibraryTerm:
         return ES_prod(self, other)
 
+    def eq_canon(self):
+        derivand_ec, sign = self.derivand.eq_canon()
+        return LibraryPrime(derivative=self.derivative.eq_canon()[0], derivand=derivand_ec), sign
+
 @dataclass(frozen=True, order=True)
 class LibraryTerm[T, Derivand](EinSumExpr):
     """
@@ -400,6 +444,21 @@ class LibraryTerm[T, Derivand](EinSumExpr):
     @cached_property
     def complexity(self):
         return sum((prime.complexity) for prime in self.primes)
+
+    @lru_cache
+    def symmetry(self, free_ind1=0, free_ind2=1) -> Optional[Int]:
+        def transpose(ind):
+            if ind.value == free_ind1:
+                return VarIndex(free_ind2)
+            elif ind.value == free_ind2:
+                return VarIndex(free_ind1)
+            else:
+                return ind
+            
+        transposed_canon, sign = self.map_all_indices(transpose).eq_canon()
+        #print(self, transposed_canon)
+        #print(self.primes[0].derivative.x_derivatives, transposed_canon.primes[0].derivative.x_derivatives)
+        return sign if self==transposed_canon else None
 
     #@cached_property
     #def rank(self): # only defined for VarIndex at the moment
@@ -440,8 +499,10 @@ class LibraryTerm[T, Derivand](EinSumExpr):
     def __mul__(self, other: Union[LibraryPrime, LibraryTerm]) -> LibraryTerm:
         return ES_prod(self, other)
 
-    def lexico_canon(self):
-        return LibraryTerm(primes=tuple(sorted(self.primes)), rank=self.rank)
+    def eq_canon(self):
+        ecs = [prime.eq_canon() for prime in self.primes]
+        sign = prod([pair[1] for pair in ecs], initial=1)
+        return LibraryTerm(primes=tuple(sorted([pair[0] for pair in ecs])), rank=self.rank), sign
 
 # NOTE: HIGHER-RANK TERMS IN SUM NOT GUARANTEED TO BE CANONICAL - CANONICALIZE WHEN SAMPLING
 class Equation[T, Derivand]:  # can represent equation (expression = 0) OR expression
@@ -490,6 +551,7 @@ class Equation[T, Derivand]:  # can represent equation (expression = 0) OR expre
             coeffs[term] += coeff
 
         # canonicalize terms, removing those with 0 coefficient
+        # MIGHT BE EQ_CANON?
         coeffs = {canonicalize(term): coeff
                   for term, coeff in coeffs.items() if coeff != 0}
 
@@ -552,6 +614,9 @@ class Equation[T, Derivand]:  # can represent equation (expression = 0) OR expre
             raise ValueError("Equation contains more than one distinct term")
         else:
             return canonicalize(self.terms[0]) # may need structural canonicalization too - check
+
+    #def eq_canon(self):
+    #    return Equation(coeffs = coeffs, terms = [term.eq_canon() for term in terms])
 
 def yield_tuples_up_to(bounds): # yield cartesian product of range(bounds[i]+1) 
     if len(bounds) == 0:

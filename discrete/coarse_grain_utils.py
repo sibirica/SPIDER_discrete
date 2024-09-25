@@ -80,6 +80,8 @@ def kd_gaussian_coarse_grain2d(points: float64[:, :],
     leaf_size: uint64 = np.floor(np.log2(n))  # the leaf_size of the KDTree (log2(n) is a good heuristic)
     tree = KDTree(points_, leafsize=leaf_size)  # the KDTree of the scaled data points
 
+    max_neighbors: uint64 = n  # [TODO] pass in L as a parameter, = c*[(cutoff*sigma)/L]^2*n
+
     xi_: float64[m, d] = xi / sigma  # the scaled evaluation points
 
     estimate: float64[m] = np.zeros(m)  # the estimate at the evaluation points
@@ -87,9 +89,13 @@ def kd_gaussian_coarse_grain2d(points: float64[:, :],
 
     for j in prange(m):
         neighbors: uint64[:] = tree.query_radius(xi_[j, :], cutoff)[0]
-        for i in neighbors:
-            estimate[j] += np.exp(-np.sum((points_[i, :] - xi_[j, :]) * (points_[i, :] - xi_[j, :])) / 2) \
+        n_neighbors: unit64[:] = len(neighbors)
+        assert n_neighbors <= max_neighbors, "too many neighbors, increase max_neighbors tolerance"
+        est_i : float64[max_neighbors] = np.zeros(max_neighbors)
+        for i in prange(n_neighbors):
+            est_i[i] = np.exp(-np.sum((points_[i, :] - xi_[j, :]) * (points_[i, :] - xi_[j, :])) / 2) \
                            * values[i]
+        estimate[j] = np.sum(est_i)
 
     return estimate * norm
 
@@ -208,6 +214,7 @@ def int_pow(x: float64, n: uint8) -> float64:
     return r
 
 
+# [TODO] same changes as Gaussian
 @jit(
     signature_or_function="float64[:](float64[:, :], float64[:], float64[:, :], uint8, float64)",
     nopython=True,

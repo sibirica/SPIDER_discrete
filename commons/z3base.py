@@ -165,6 +165,11 @@ class EinSumExpr[T](ABC):
     #     return dataclasses.replace(self, **new_obj)
 
     @abstractmethod
+    def eq_canon(self) -> Tuple[EinSumExpr[T], int]:
+        """ Returns the canonical form of the term modulo equality rewrites & the sign after rewrites. """
+        ...
+
+    @abstractmethod
     def map[T2](self, *,
                 expr_map: Callable[[EinSumExpr[T]], EinSumExpr[T2]] = lambda x: x,
                 index_map: Callable[[T], T2] = lambda x: x) -> EinSumExpr[T2]:
