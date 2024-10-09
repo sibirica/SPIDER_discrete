@@ -60,7 +60,7 @@ def dt(expr: EinSumExpr[VarIndex]):
         case Observable():
             return LibraryPrime(derivative=DerivativeOrder.indexed_derivative(1, 0), derivand=expr)
         case DerivativeOrder(torder=to, x_derivatives=xd):
-            return DerivativeOrder(torder=to + 1, x_derivatives=xd)
+            return DerivativeOrder(torder=to+1, x_derivatives=xd)
         case LibraryPrime(derivative=derivative):
             return replace(expr, derivative=dt(derivative))
         case LibraryTerm():
@@ -181,6 +181,23 @@ def ES_sum(*equations: LibraryTerm | Equation):
     coeffs = tuple((coeff for eq in equations for coeff in eq.coeffs))
     return Equation(terms, coeffs)
 
+# create a copy of the prime with a new set of derivative orders
+def set_order_counts(p: Prime, counts: Counter[int]) -> Prime:
+    torder = counts['t']
+    counts['t'] = 0
+    x_derivatives = Tuple([item for item, count in sorted(counts.items()) for _ in range(count)])
+    new_derivative = DerivativeOrder(torder=torder, x_derivatives=x_derivatives)
+    return replace(p, derivative=new_derivative)
+
+def parse_ind(dim: Union[int, str], literal: bool=True):
+    match dim:
+        case int():
+            return LiteralIndex(value=dim) if literal else VarIndex(value=dim)
+        case 't':
+            return 't'
+        case _:
+            return NotImplemented
+
 @dataclass(frozen=True)
 class INF:
     def __lt__(self, other):
@@ -246,11 +263,37 @@ class DerivativeOrder[T](EinSumExpr):
             tstring = f"∂t{exp_string(self.torder)} "
         xstring = ""
         if self.xorder != 0:
-            ind_counter = Counter(self.x_derivatives)
-            for ind in sorted(ind_counter.keys()):
-                count = ind_counter[ind]
-                xstring += f"∂{ind}{exp_string(count)} "
+            #ind_counter = Counter(self.x_derivatives)
+            #for ind in sorted(ind_counter.keys()):
+            #    count = ind_counter[ind]
+            ind_counter = self.get_spatial_orders()
+            for ind in sorted(ind_counter.keys())):
+                xstring += f"∂{ind}{exp_string(ind_counter[ind]} "
         return (tstring + xstring)[:-1] # get rid of the trailing space
+
+    # [possible TO DO] could change this to include t dimension too! or just calling derivs_along would be ok too
+    # def get_spatial_orders(self, max_idx=None):
+    #     ind_counter = Counter(self.x_derivatives)
+    #     if max_idx is not None: # include zeros
+    #         counts = defaultdict(int)
+    #         for ind, count in ind_counter.items():
+    #             counts[ind.value] += count
+    #         return [(i, counts[i]) for i in range(max_idx)]
+    #     else:
+    #         return [(ind, ind_counter[ind]) for ind in sorted(ind_counter.keys())]
+
+    @lru_cache
+    def get_spatial_orders(self) -> Counter:
+        return Counter(self.x_derivatives)
+
+    def get_all_orders(self) -> Counter:
+        counter = self.get_spatial_orders()
+        counter['t'] = self.torder
+        return counter
+
+    #@lru_cache
+    #def derivs_along(self, dim: int) -> int: # number of derivatives along 'dim' index
+    #    return sum(1 for idx in self.x_derivatives if idx.value==dim)
 
     def __lt__(self, other):
         if not isinstance(other, DerivativeOrder):
@@ -336,10 +379,10 @@ class Observable[T](EinSumExpr):
 
 def parity(old_list, new_list): # return -1 for odd permutation, +1 for even
     zipped = list(zip(old_list, new_list))
-    #signs = [-1 for (ox,nx) in zipped for (oy,ny) in zipped if ox<oy and nx>ny]
     return prod([-1 for (ox,nx) in zipped for (oy,ny) in zipped if ox<oy and nx>ny], initial=1)
+    #signs = [-1 for (ox,nx) in zipped for (oy,ny) in zipped if ox<oy and nx>ny]
     #print(signs)
-    return prod(signs, initial=1)
+    #return prod(signs, initial=1)
 
 @dataclass(frozen=True)
 class ConstantTerm(Observable):
@@ -365,6 +408,9 @@ class ConstantTerm(Observable):
 
     def eq_canon(self):
         return self, 1
+
+    def derivs_along(self, dim): # number of derivatives along 'dim' index
+        return 0
 
 @dataclass(frozen=True)
 class LibraryPrime[T, Derivand](EinSumExpr):
@@ -431,6 +477,39 @@ class LibraryPrime[T, Derivand](EinSumExpr):
     def eq_canon(self):
         derivand_ec, sign = self.derivand.eq_canon()
         return LibraryPrime(derivative=self.derivative.eq_canon()[0], derivand=derivand_ec), sign
+
+    @cached_property
+    def nderivs(self):
+        return self.derivative.xorder+self.derivative.torder
+
+    def derivs_along(self, dim: Union[int, str]) -> int: # number of derivatives along 'dim' index
+        return self.derivative.get_all_orders[dim]
+
+    def succeeds(self, other: LibraryPrime, dim: int) -> bool: # check if d/d(dim) other==self
+        if self.derivand != other.derivand:
+            return False
+        self_ords = self.derivative.get_all_orders()
+        other_ords = other.derivative.get_all_orders()
+        diff = self_ords-other_ords
+        # check that only derivative in difference is w.r.t dim
+        return len(diff.keys())==1 and diff.total()==1 and diff.keys()[0].value == dim
+
+    def diff(self, dim: Union[int, str], literal: bool=True) -> LibraryPrime: # add a derivative w.r.t. VarIndex or LiteralIndex dim (or t)
+        deriv_counter = self.derivative.get_all_orders()
+        index = parse_ind(dim, literal)
+        deriv_counter[index] += 1
+        return set_order_counts(self, deriv_counter)
+        #return replace(self, derivative=replace(derivative, x_derivatives=sorted(x_derivatives+(index,))))
+
+    # remove a derivative w.r.t. VarIndex or LiteralIndex dim (or t)
+    def antidiff(self, dim: Union[int, str], literal: bool=True) -> LibraryPrime: 
+        deriv_counter = self.derivative.get_all_orders()
+        index = parse_ind(dim, literal)
+        deriv_counter[index] -= 1
+        return set_order_counts(self, deriv_counter)
+        #old_derivs = self.derivative.x_derivatives
+        #position = old_derivs.index(index)
+        #return replace(self, derivative=replace(derivative, x_derivatives=old_derivs[:position]+old_derivs[position+1:]))
 
 @dataclass(frozen=True, order=True)
 class LibraryTerm[T, Derivand](EinSumExpr):
@@ -503,6 +582,15 @@ class LibraryTerm[T, Derivand](EinSumExpr):
         ecs = [prime.eq_canon() for prime in self.primes]
         sign = prod([pair[1] for pair in ecs], initial=1)
         return LibraryTerm(primes=tuple(sorted([pair[0] for pair in ecs])), rank=self.rank), sign
+
+    def drop(self, prime: LibraryPrime) -> LibraryTerm: # pop one copy of given prime from term
+        return replace(self, primes=primes.remove(obs))
+
+    def max_prime_derivatives(self): # max number of derivatives among any prime
+        return max(prime.nderivs for prime in self.primes)
+
+    #def highest_derivative(self, dim): # get highest number of derivatives along 'dim' index of any prime
+    #    return max(prime.derivative.derivs_along(dim) for prime in self.primes)
 
 # NOTE: HIGHER-RANK TERMS IN SUM NOT GUARANTEED TO BE CANONICAL - CANONICALIZE WHEN SAMPLING
 class Equation[T, Derivand]:  # can represent equation (expression = 0) OR expression

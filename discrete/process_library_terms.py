@@ -35,16 +35,28 @@ class SRDataset(AbstractDataset):  # structures all data associated with a given
         self.libs = dict()
         terms = generate_terms_to(max_complexity, observables=self.observables,
                                   max_observables=max_observables, max_rho=max_rho)
-        for rank in self.irreps:
-            self.libs[rank] = LibraryData([term for term in terms if term.rank == rank], rank)
+        for irrep in self.irreps:
+            match irrep:
+                case int():
+                    return full_basis(base_weight, n_dimensions, irrep)
+                case FullRank():
+                    self.libs[irrep] = LibraryData([term for term in terms if term.rank == irrep.rank], irrep)
+                case Antisymmetric():
+                    self.libs[irrep] = LibraryData([term for term in terms if term.rank == irrep.rank 
+                                                    and term.symmetry() != 1], irrep)
+                case SymmetricTraceFree():
+                    self.libs[irrep] = LibraryData([term for term in terms if term.rank == irrep.rank 
+                                                    and term.symmetry() != -1], irrep)
+                #case _:
+                #    raise NotImplemented
 
     def make_domains(self, ndomains, domain_size, pad=0):
         self.domains = []
         scaled_dims = [int(s * self.cg_res) for s in domain_size[:-1]] + [domain_size[-1]]  # self.interp_factor *
         scaled_world_size = [int(s * self.cg_res) for s in self.world_size[:-1]] + [
             self.world_size[-1]]  # self.interp_factor *
-        pads = [np.ceil(pad * self.cg_res) for s in domain_size[:-1]] + [
-            0]  # padding by pad in original units on spatial dims
+        # padding by pad in original units on spatial dims
+        pads = [np.ceil(pad * self.cg_res) for s in domain_size[:-1]] + [0] 
         self.domain_size = scaled_dims
         for i in range(ndomains):
             min_corner = []
@@ -71,9 +83,9 @@ class SRDataset(AbstractDataset):  # structures all data associated with a given
                     if dist <= self.scaled_sigma * self.cutoff:
                         self.domain_neighbors[domain, t].append(i)
 
-    def eval_prim(self, prim: IndexedPrimitive, domain: IntegrationDomain, experimental: bool = False, order: int = 4):
+    def eval_prime(self, prime: IndexedPrimitive, domain: IntegrationDomain, experimental: bool = False, order: int = 4):
         # experimental: bool = True,
-        cgp = prim.cgp
+        cgp = prime.derivand
         obs_dims = prim.obs_dims
         if self.n_dimensions != 3:
             if experimental:
@@ -211,14 +223,14 @@ class SRDataset(AbstractDataset):  # structures all data associated with a given
     def get_char_size(self, term):
         # return characteristic size of a library term
         product = 1
-        for prim in term.obs_list:
-            xorder = prim.dorder.xorder
-            torder = prim.dorder.torder
+        for prime in term.primes:
+            xorder = prime.derivative.xorder
+            torder = prime.derivative.torder
             if torder + xorder > 0:
                 statistic = 'std'
             else:
                 statistic = 'mean'
-            for obs in prim.cgp.obs_list:
+            for obs in prime.derivand.observables:
                 name = obs.string
                 product *= self.scale_dict[name][statistic]
             # add in rho contribution (every primitive contains a rho)
@@ -242,43 +254,3 @@ class SRDataset(AbstractDataset):  # structures all data associated with a given
     #     row_weights1 = np.tile(row_weights0, self.n_dimensions - 1)  # because each dimension gets its own row
     #     self.libs[0].row_weights = row_weights0
     #     self.libs[1].row_weights = row_weights1
-        
-    @staticmethod
-    def get_dims(term, ndims, dim=None, start=0, do=None, od=None):
-        # yield all of the possible x, y, z labelings for a given LibraryTerm
-        labels = term.labels
-        # print(term, labels, dim)
-        if do is None:
-            do = [[0] * ndims for _ in term.obs_list]  # derivatives in x, y (z) of each part of the term
-        if od is None:
-            od = [[None] * t.cgp.rank for t in
-                  term.obs_list]  # the dimension of the observable to evaluate (None if the observable is rank 0)
-        if len(labels.keys()) == 0:
-            yield do, od
-            return
-        if start == 0:
-            start += 1
-            if dim is not None:
-                val = labels[0][0]
-                if val[0] % 2 == 0:
-                    do[val[0] // 2][dim] += 1
-                else:
-                    od[val[0] // 2][val[1]] = dim
-        if start > max(labels.keys()):
-            yield do, od
-        else:
-            vals = labels[start]
-            for new_dim in range(ndims):
-                do_new = copy.deepcopy(do)
-                od_new = copy.deepcopy(od)
-                # print("do", do)
-                # print("od", od)
-                for val_ind, val_pos in vals:
-                    if val_ind % 2 == 0:
-                        do_new[val_ind // 2][new_dim] += 1
-                    else:
-                        # noinspection PyTypeChecker
-                        od_new[val_ind // 2][val_pos] = new_dim
-                # print("do_new", do_new)
-                # print("od_new", od_new)
-                yield from get_dims(term, ndims, dim=dim, start=start + 1, do=do_new, od=od_new)

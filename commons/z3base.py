@@ -9,7 +9,7 @@ from dataclasses import dataclass, field, replace, KW_ONLY
 from itertools import count
 import z3
 
-@dataclass
+@dataclass(frozen=True)
 class SymmetryRep:
     _: KW_ONLY
     rank: int
@@ -18,17 +18,17 @@ class SymmetryRep:
         print("Warning, SymmetryReps have been added")
         return FullRank(rank=self.rank + other.rank)
 
-@dataclass
+@dataclass(frozen=True)
 class Antisymmetric(SymmetryRep):
     def __repr__(self):
         return f"Antisymmetric rank {self.rank}"
 
-@dataclass
+@dataclass(frozen=True)
 class SymmetricTraceFree(SymmetryRep):
     def __repr__(self):
         return f"Symmetric trace-free rank {self.rank}"
 
-@dataclass
+@dataclass(frozen=True)
 class FullRank(SymmetryRep):
     def __repr__(self):
         return f"Rank {self.rank}"
