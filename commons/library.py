@@ -7,29 +7,47 @@ from functools import cached_property, reduce, lru_cache
 from operator import add
 from collections import defaultdict, Counter
 
+import re
+import unicodedata
+
 import numpy as np
 from numpy import prod
 from typing import Union
 
 from commons.z3base import *
 
+# list of substitutions to go between plaintext and LaTeX output
+latex_replacements = {'·': '\\cdot', '²': '^2', '³': '^3', '⁴': '^4', '⁵': '^5', '⁶': '^6',
+                      '⁷': '^7', '⁸': '^8', '⁹': '^9', '∂': '\\partial '}
+for letter in lowercase_greek_letters:
+    latex_replacements[letter] = '\\'+ unicodedata.name(letter).split()[-1].lower()
+
+def multiple_replace(string, rep_dict):
+    pattern = re.compile("|".join([re.escape(k) for k in rep_dict]), flags=re.DOTALL)
+    return pattern.sub(lambda x: rep_dict[x.group(0)], string)
+
+def wrap_subscripts(string):
+    #return re.sub(r'_([^ \]]*)', r'_{\1}', string)
+    return re.sub(r'_([A-z0-9\\]*)', r'_{\1}', string)
+
 # increment all indices (Einstein or literal) in an expression
 def inc_inds(expr: EinSumExpr[VarIndex | LiteralIndex], shift=1):
     return expr.map_all_indices(lambda ind: replace(ind, value=ind.value + shift))
-    #return expr.map(expr_map=inc_inds,
-    #                index_map=lambda ind: replace(ind, value=ind.value + shift))
 
-# get rank of an expression by looking at the indices of an Einstein expression
+# get rank of an Einstein expression by looking at its VarIndices/IndexHoles
 def index_rank(indices: Iterable[VarIndex]):
     index_counter = Counter(indices)
-    num_singles = len([count for index, count in index_counter.items() if count==1])
-    return num_singles
+    num_singles = len([count for index, count in index_counter.items() if count==1 and instanceof(index, VarIndex)])
+    num_holes = index_counter[IndexHole()]
+    return num_singles+num_holes
 
 # get highest index in list
 def highest_index(indices: Iterable[VarIndex]):
     return max(index.value for index in indices) if indices else 0
 
-def canonicalize(expr: EinSumExpr[VarIndex]):
+def canonicalize(expr: EinSumExpr[VarIndex] | Equation):
+    if isinstance(expr, Equation):
+        return expr.canonicalize()
     if isinstance(expr, LibraryTerm):
         expr, sign = expr.eq_canon()
     #print(expr)
@@ -46,14 +64,7 @@ def canonicalize(expr: EinSumExpr[VarIndex]):
     except StopIteration:
         pass
     #assert next(indexings, -1) == -1, "Expected only one canonical indexing"
-    return canon
-
-# def eq_canon(expr: EinSumExpr[VarIndex | LiteralIndex]):
-#     sorted_inds = sorted(expr.own_indices()) if expr.can_commute_indices else expr.own_indices()
-#     sorted_exprs = sorted(expr.sub_exprs()) if expr.can_commute_exprs else expr.sub_exprs()
-#     ind_perm = {i: j for i, j in zip(expr.own_indices(), sorted_inds)}
-#     expr_perm = {i: j for i, j in zip(expr.sub_exprs(), sorted_exprs)}
-#     return expr.map(expr_map=lambda e:expr_perm.get(e, e), index_map=lambda i:ind_perm.get(i, i))
+    return canon.eq_canon()[0] # canonicalize structure too
 
 def dt(expr: EinSumExpr[VarIndex]):
     match expr:
@@ -75,7 +86,7 @@ def dt(expr: EinSumExpr[VarIndex]):
                           if not isinstance(term, ConstantTerm)])
             #if not components:
             #    return Equation((), ()) #None - might need an is_empty for Equation?
-            return reduce(add, components, Equation(coeffs=(), terms=()))#.canonicalize()
+            return ES_sum(*components)#.canonicalize()
 
 # construct term or equation by taking x derivative with respect to new i index, shifting others up by 1
 # NOT GUARANTEED TO BE CANONICAL
@@ -117,29 +128,33 @@ def dx_helper(expr: EinSumExpr[VarIndex]):
 
 # contract term or equation along i and j indices, setting j to i (if i<j) and moving others down by 1
 # NOT GUARANTEED TO BE CANONICAL
-def contract(expr: EinSumExpr[VarIndex], i: int, j: int):
-    n_singles = index_rank(expr.all_indices()) 
-    assert i<n_singles and j<n_singles, "Can only contract single indices"
-    new_n_singles = n_singles - 2
-    new_double = new_n_singles
-    if j<i:
-        i, j = j, i
-    def contraction_map(ind: VarIndex):
-        if ind.value == i or ind.value == j:
-            # index_rank decreases by 2 as a result of contraction, so map new double to ir-1
-            return VarIndex(new_double) 
-        if ind.value >= n_singles:
-            # beats 2-1 additional indices
-            return VarIndex(ind.value-1)
-        if ind.value > j:
-            # beats 2 additional indices
-            return VarIndex(ind.value-2)
-        if ind.value > i:
-            # beats 1 additional index
-            return VarIndex(ind.value-1)
-        return ind
-    reindexed_expr, sign = expr.map_all_indices(index_map=contraction_map).eq_canon()
-    return replace(reindexed_expr, rank=expr.rank-2)
+def contract(expr: EinSumExpr[VarIndex] | Equation[VarIndex], i: int, j: int):
+    match expr:
+        case Equation(terms=ts, coeffs=c):
+            return Equation(terms=[contract(t, i, j) for t in ts], coeffs=c)
+        case EinSumExpr():
+            n_singles = index_rank(expr.all_indices()) 
+            assert i<n_singles and j<n_singles, "Can only contract single indices"
+            new_n_singles = n_singles - 2
+            new_double = new_n_singles
+            if j<i:
+                i, j = j, i
+            def contraction_map(ind: VarIndex):
+                if ind.value == i or ind.value == j:
+                    # index_rank decreases by 2 as a result of contraction, so map new double to ir-1
+                    return VarIndex(new_double) 
+                if ind.value >= n_singles:
+                    # beats 2-1 additional indices
+                    return VarIndex(ind.value-1)
+                if ind.value > j:
+                    # beats 2 additional indices
+                    return VarIndex(ind.value-2)
+                if ind.value > i:
+                    # beats 1 additional index
+                    return VarIndex(ind.value-1)
+                return ind
+            reindexed_expr, sign = expr.map_all_indices(index_map=contraction_map).eq_canon()
+            return replace(reindexed_expr, rank=expr.rank-2)
 
 # cast a ConstantTerm or LibraryPrime to LibraryTerm
 def cast_to_term(x: ConstantTerm | LibraryPrime | LibraryTerm):
@@ -157,7 +172,7 @@ def cast_to_equation(x: LibraryTerm | Equation):
     else:
         return x
     
-# helper function for prime/library term multiplication
+# helper function for prime/library term multiplication - OUTPUT IS CANONICAL
 def ES_prod(*terms: ConstantTerm | LibraryPrime | LibraryTerm):
     product_rank = 0
     combined_primes = []
@@ -174,7 +189,7 @@ def ES_prod(*terms: ConstantTerm | LibraryPrime | LibraryTerm):
     #print("PRECANONICAL", product)
     return canonicalize(product)
 
-# helper function for prime/library term addition
+# helper function for prime/library term addition - OUTPUT IS CANONICAL
 def ES_sum(*equations: LibraryTerm | Equation):
     equations = [cast_to_equation(eq) for eq in equations]
     terms = tuple((term for eq in equations for term in eq.terms))
@@ -267,8 +282,8 @@ class DerivativeOrder[T](EinSumExpr):
             #for ind in sorted(ind_counter.keys()):
             #    count = ind_counter[ind]
             ind_counter = self.get_spatial_orders()
-            for ind in sorted(ind_counter.keys())):
-                xstring += f"∂{ind}{exp_string(ind_counter[ind]} "
+            for ind in sorted(ind_counter.keys()):
+                xstring += f"∂{ind}{exp_string(ind_counter[ind])} "
         return (tstring + xstring)[:-1] # get rid of the trailing space
 
     # [possible TO DO] could change this to include t dimension too! or just calling derivs_along would be ok too
@@ -575,8 +590,14 @@ class LibraryTerm[T, Derivand](EinSumExpr):
         #else:
         #    return Equation(coeffs=(1, *other.coeffs), terms=(self, *other.terms))
 
-    def __mul__(self, other: Union[LibraryPrime, LibraryTerm]) -> LibraryTerm:
-        return ES_prod(self, other)
+    def __mul__(self, other: Union[LibraryPrime, LibraryTerm, float, int]) -> Union[LibraryTerm, Equation]:
+        match other:
+            case LibraryPrime() | LibraryTerm():
+                return ES_prod(self, other)
+            case float() | int():
+                return Equation(terms=(self,), coeffs=(other,))
+
+    __rmul__ = __mul__
 
     def eq_canon(self):
         ecs = [prime.eq_canon() for prime in self.primes]
@@ -589,6 +610,11 @@ class LibraryTerm[T, Derivand](EinSumExpr):
     def max_prime_derivatives(self): # max number of derivatives among any prime
         return max(prime.nderivs for prime in self.primes)
 
+    def diff(self, dim: Union[int, str], literal: bool=True) -> Generator[LibraryTerm]: # derivative of term wrt specific index
+        primes = list(self.primes())
+        yield from (ES_prod(*primes[:i], prime.diff(dim, literal), *primes[i+1:])
+                   for i, prime in enumerate(primes))
+
     #def highest_derivative(self, dim): # get highest number of derivatives along 'dim' index of any prime
     #    return max(prime.derivative.derivs_along(dim) for prime in self.primes)
 
@@ -596,14 +622,14 @@ class LibraryTerm[T, Derivand](EinSumExpr):
 class Equation[T, Derivand]:  # can represent equation (expression = 0) OR expression
     def __init__(self, terms, coeffs):  # terms are LibraryTerms, coeffs are real numbers
         content = zip(terms, coeffs)
-        coeffs = defaultdict(int)
+        coeffs_dict = defaultdict(int)
         for term, coeff in content:
-            coeffs[term] += coeff
+            coeffs_dict[term] += coeff
         # remove terms with 0 coefficient
-        coeffs = {term: coeff for term, coeff in coeffs.items() if coeff != 0}
+        coeffs_dict = {term: coeff for term, coeff in coeffs_dict.items() if coeff != 0}
         # note that sorting guarantees canonicalization in equation term order
-        self.terms = tuple(sorted(coeffs.keys()))
-        self.coeffs = tuple(coeffs[term] for term in self.terms)
+        self.terms = tuple(sorted(coeffs_dict.keys()))
+        self.coeffs = tuple(coeffs_dict[term] for term in self.terms)
         self.rank = terms[0].rank if terms else 0
         self.complexity = sum([term.complexity for term in terms])  # another choice is simply the number of terms
         self.canonicalize()
@@ -629,6 +655,13 @@ class Equation[T, Derivand]:  # can represent equation (expression = 0) OR expre
 
     def __str__(self):
         return self.__repr__() + " = 0"
+
+    def pstr(self, num_format: str='{0:.3g}', latex_output: bool=False) -> str: # pretty string representation
+        #num_format = '{0:.' + str(sigfigs) + 'g}'
+        pretty_str = ' + '.join([num_format.format(coeff) + ' · ' + str(term) if coeff != 1 else str(term)
+                             for coeff, term in zip(self.coeffs, self.terms)]) + " = 0"
+
+        return wrap_subscripts(multiple_replace(pretty_str, latex_replacements)) if latex_output else pretty_str
 
     def __eq__(self, other):
         return self.terms == other.terms and self.coeffs == other.coeffs
@@ -706,23 +739,23 @@ class Equation[T, Derivand]:  # can represent equation (expression = 0) OR expre
     #def eq_canon(self):
     #    return Equation(coeffs = coeffs, terms = [term.eq_canon() for term in terms])
 
-def yield_tuples_up_to(bounds): # yield cartesian product of range(bounds[i]+1) 
-    if len(bounds) == 0:
-        yield ()
-        return
-    for i in range(bounds[0] + 1):
-        for tup in yield_tuples_up_to(bounds[1:]):
-            # print(i, tup)
-            yield (i,) + tup
+# def yield_tuples_up_to(bounds): # yield cartesian product of range(bounds[i]+1) 
+#     if len(bounds) == 0:
+#         yield ()
+#         return
+#     for i in range(bounds[0] + 1):
+#         for tup in yield_tuples_up_to(bounds[1:]):
+#             # print(i, tup)
+#             yield (i,) + tup
 
-def yield_legal_tuples(bounds): # allocate observables & derivatives up to the available bounds
-    # print("bounds:", bounds)
-    if sum(bounds[:-2]) > 0:  # if there are still other observables left
-        # print("ORDERS:", bounds)
-        yield from yield_tuples_up_to(bounds)
-    else:  # must return all derivatives immediately
-        # print("Dump ORDERS")
-        yield bounds
+# def yield_legal_tuples(bounds): # allocate observables & derivatives up to the available bounds
+#     # print("bounds:", bounds)
+#     if sum(bounds[:-2]) > 0:  # if there are still other observables left
+#         # print("ORDERS:", bounds)
+#         yield from yield_tuples_up_to(bounds)
+#     else:  # must return all derivatives immediately
+#         # print("Dump ORDERS")
+#         yield bounds
 
 def partition(n: int, k: int, weights: Optional[Tuple[int]]) -> Generator[Tuple[int], None, None]:
     """

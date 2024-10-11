@@ -1,29 +1,32 @@
+# It may or may not be nicer to take the SRDataset object as input for some of these
 from timeit import default_timer as timer
+from functools import reduce
+from operators import add
+
 from library import *
 from commons.sparse_reg import *
-
-
-def identify_equations(Q, reg_opts, library, observables, threshold=1e-5, min_complexity=1,
-                       max_complexity=None, max_equations=999, timed=True, excluded_terms=None, multipliers=None):
-    """
-    does not properly identify all implications since generation via dx is incomplete from an indexing perspective
-    e.g., both generation via differentiation and multiplication cannot follow the path v_i->dj v_i->dj^2 v_i
-    most probable fix is by considering indexed tensors of ranks >=2, but this bug isn't critical
-    """
+from commons.sparse_reg_bf import *
+    
+def identify_equations(Q, reg_opts, library, print_opts=None, threshold=1e-5, min_complexity=1, # ranks=None,
+                       max_complexity=None, max_equations=999, timed=True, excluded_terms=None, primes=None):
     if timed:
         start = timer()
     equations = []
     lambdas = []
     derived_eqns = {}
+    #if ranks is None:
+    #    ranks = (0, 1, 2)
+    if print_opts is None:
+        #print_opts = {sigfigs: 3, latex_output: False}
+        print_opts = {num_format: '{0:.3g}', latex_output: False}
     if excluded_terms is None:
         excluded_terms = set()
     # this can be eliminated by keeping track of two different max_complexities in args
     lib_max_complexity = max([term.complexity for term in library])  # generate list of derived terms up to here
     if max_complexity is None:
         max_complexity = lib_max_complexity
-    if multipliers is None:
-        obs_terms = set([obs_to_term(obs) for obs in observables])
-        multipliers = set(get_multipliers(obs_terms, lib_max_complexity))
+    if primes is None:
+        primes = get_primes(library, max_complexity)
     for complexity in range(min_complexity, max_complexity + 1):
         while len(equations) < max_equations:
             selection = [(term, i) for (i, term) in enumerate(library) if term.complexity <= complexity
@@ -44,7 +47,7 @@ def identify_equations(Q, reg_opts, library, observables, threshold=1e-5, min_co
                 # noinspection PyUnboundLocalVariable
                 time = timer() - start
                 print(f"[{time:.2f} s]")
-            print(f'Identified model: {eq} (order {complexity}, residual {res:.2e})')
+            print(f'Identified model: {eq.pstr(print_opts)} (order {complexity}, residual {res:.2e})')
             # eliminate terms via infer_equations
             derived_eqns[str(eq)] = []
             for new_eq in infer_equations(eq, multipliers, lib_max_complexity):
@@ -55,22 +58,24 @@ def identify_equations(Q, reg_opts, library, observables, threshold=1e-5, min_co
     return equations, lambdas, derived_eqns, excluded_terms
 
 
-def interleave_identify(Qs, reg_opts_list, libraries, observables, threshold=1e-5, min_complexity=1,
+def interleave_identify(Qs, reg_opts_list, libraries, print_opts=None, threshold=1e-5, min_complexity=1,  # ranks = None
                         max_complexity=None, max_equations=999, timed=True, excluded_terms=None):
     equations = []
     lambdas = []
     derived_eqns = {}
+    #if ranks is None:
+    #    ranks = (0, 1, 2)
     if excluded_terms is None:
         excluded_terms = set()
     lib_max_complexity = max([term.complexity for library in libraries for term in library])
     if max_complexity is None:
         max_complexity = lib_max_complexity
-    obs_terms = set([obs_to_term(obs) for obs in observables])
-    multipliers = set(get_multipliers(obs_terms, lib_max_complexity))
+    concat_libs = reduce(add, libraries, initial=[])
+    primes = get_primes(concat_libs, max_complexity)
     for complexity in range(min_complexity, max_complexity + 1):
         for Q, reg_opts, library in zip(Qs, reg_opts_list, libraries):
             eqs_i, lbds_i, der_eqns_i, exc_terms_i = identify_equations(Q, reg_opts, library,
-                                                                        observables, threshold=threshold,
+                                                                        threshold=threshold,
                                                                         min_complexity=complexity,
                                                                         max_complexity=complexity,
                                                                         max_equations=max_equations, timed=timed,
@@ -82,63 +87,44 @@ def interleave_identify(Qs, reg_opts_list, libraries, observables, threshold=1e-
             excluded_terms.update(exc_terms_i)
     return equations, lambdas, derived_eqns, excluded_terms
 
-
 def make_equation_from_Xi(Xi, lambd, best_term, lambda1, sublibrary):
     if lambda1 < lambd:
-        return Equation([sublibrary[best_term]], [1]), lambda1
+        return Equation(terms=(sublibrary[best_term],), coeffs=(1,)), lambda1
     else:
         zipped = [(sublibrary[i], c) for i, c in enumerate(Xi) if c != 0]
-        return Equation([e[0] for e in zipped], [e[1] for e in zipped]), lambd
+        return Equation(terms=[e[0] for e in zipped], coeffs=[e[1] for e in zipped]), lambd
 
-
-def infer_equations(equation, multipliers, max_complexity):
-    yield equation
-    complexity = max([term.complexity for term in equation.term_list])
-    if complexity >= max_complexity:  # should be at most equal actually
+def infer_equations(equation, primes, max_complexity, complexity=None):
+    #yield equation
+    # do all of the contractions in one step so we don't have different permutations of contraction & index creation 
+    if complexity is None:
+        complexity = max([term.complexity for term in equation.terms])
+    if complexity >= max_complexity:
         return
+    yield from get_all_contractions(equation)
     rem_complexity = max_complexity - complexity
-    eq_dt = equation.dt()
-    eq_dx = equation.dx()
-    yield from infer_equations(eq_dt, multipliers, max_complexity)
-    yield from infer_equations(eq_dx, multipliers, max_complexity)
-    for term in multipliers:
-        if term.complexity <= rem_complexity:
-            yield from infer_equations(term * equation, multipliers, max_complexity)
-
+    eq_dt = dt(equation)#.canonicalize() # I don't think canonicalization is necessary here
+    eq_dx = dx(equation).canonicalize()
+    yield from infer_equations(eq_dt, primes, max_complexity, complexity=complexity+1)
+    yield from infer_equations(eq_dx, primes, max_complexity, complexity=complexity+1)
+    for prime in primes:
+        #if prime.complexity <= rem_complexity:
+        # multiplication canonicalizes
+        yield from infer_equations(prime * equation, primes, max_complexity, complexity=complexity+prime.complexity) 
 
 def form_equation(lhs, rhs):
     if rhs is None:
-        return Equation([lhs], [1])
+        return Equation(terms=lhs, coeffs=(1,))
     else:
-        return TermSum([lhs]) + (-1) * rhs
+        return Equation(terms=lhs, coeffs=(1,)*len(lhs)) + (-1) * rhs
 
+def get_all_contractions(equation):
+    yield canonicalize(equation) # base case
+    for i in range(equation.rank):
+        for j in range(start=i+1, stop=equation.rank):
+            yield from get_all_contractions(contract(equation, i, j))
 
-def obs_to_term(observable):
-    prim = LibraryPrimitive(DerivativeOrder(0, 0), observable)
-    tensor = LibraryTensor(prim)
-    labels = {k: [1] for k in list(range(tensor.rank))}
-    return LibraryTerm(tensor, labels=labels)
-
-
-def get_multipliers(observables, max_complexity):
-    if max_complexity <= 0:
-        return
-    frontier = []
-    for obs in observables:
-        yield obs
-        if max_complexity > 1:
-            frontier.append(obs.dt().to_term())
-            frontier.append(obs.dx().to_term())
-    yield from get_multipliers(frontier, max_complexity - 1)
-
-
-def rebalance(lhs, rhs):
-    if len(lhs.term_list) > 1:  # note that we don't need to check =0 since 1 can't be the most complex term
-        lhs1, lhs2, nrm = lhs.eliminate_complex_term(return_normalization=True)
-        if rhs is None:
-            new_rhs = -1 * lhs2
-        else:
-            new_rhs = (1 / nrm) * rhs + (-1 * lhs2)
-        return lhs1, new_rhs
-    else:
-        return lhs.to_term(), rhs
+def get_primes(library, max_complexity):
+    all_primes = set(prime.purge_indices() for term in library 
+                     for prime in term.primes if prime.complexity<=max_complexity)
+    return all_primes

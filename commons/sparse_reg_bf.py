@@ -38,8 +38,14 @@ class Scaler(object): # pre- and postprocessing by scaling/nondimensionalizing d
             for row in range(len(self.row_norms)):
                 theta[row, :] *= self.row_norms[row]
         for term in range(len(self.char_sizes)):
-            theta[:, term] /= self.char_sizes[term]  # renormalize by characteristic 
+            theta[:, term] /= self.char_sizes[term]  # renormalize by characteristic size
         return theta
+
+    def scale_model(self, model): # rescale given xi vector
+        model = np.copy(model)  # avoid bugs where array is modified in place
+        model = model[self.sub_inds]
+        model *= self.char_sizes  # renormalize by characteristic size
+        return model
         
     def postprocess_multi_term(self, xi, lambd, norm, verbose): # Xi postprocessing
         full_xi = np.zeros(shape=(self.full_w,))
@@ -475,6 +481,37 @@ def sparse_reg_bf(theta, scaler, initializer, residual, model_iterator, threshol
     model_iterator.max_k = max_k_for_reset
     
     return xi, lambd, best_term, lambda1
+
+# evaluate specific model on Q 
+# NOTE: use scaler with same column subsampling as any models being compared with & make sure model_vector sparsity matches it
+def evaluate_modeL(theta, model_vector, scaler, residual, verbose=False):
+    np.set_printoptions(precision=3)
+    if residual.residual_type == "fixed_column":
+        residual.set_norm(scaler.norm_col(theta, residual.anchor_col))
+        if verbose:
+            print('Residual normalization:', residual.norm)
+    elif residual.residual_type == "matrix_relative":
+        residual.set_norm(np.linalg.norm(theta)/theta.shape[1]) 
+        if verbose:
+            print('Residual normalization:', residual.norm)
+
+    ### PREPROCESSING
+    theta = scaler.scale_theta(theta)   
+    model_vector = scaler.scale_model(model_vector)
+    h, w = theta.shape
+
+    if residual.residual_type == "dominant_balance":
+        qc_cols = np.zeros(shape=(w,))
+        for term in model_iterator.terms:
+            qc_cols[term] = np.linalg.norm(theta[:, term]*model_vector[term])
+            if verbose:
+                print(f'qc_col[{term}]:', nrm[term])
+        residual.set_norm(np.max(qc_cols))
+        if verbose:
+            print('Residual normalization:', residual.norm)
+
+    model_vector, lambd = scaler.postprocess_multi_term(model_vector, lambd, residual.norm, verbose)
+    return lambd
 
 # taken with minor modifications from Bertsekas paper code
 def AIC(lambd, k, m, add_correction=True):

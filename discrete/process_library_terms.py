@@ -8,6 +8,7 @@ from convolution import *
 from commons.library import *
 from library import *
 from scipy.stats._stats import gaussian_kernel_estimate
+# uncomment if this isn't broken for you
 #from coarse_grain_utils import coarse_grain_time_slices, poly_coarse_grain_time_slices
 
 @dataclass(kw_only=True)
@@ -38,7 +39,7 @@ class SRDataset(AbstractDataset):  # structures all data associated with a given
         for irrep in self.irreps:
             match irrep:
                 case int():
-                    return full_basis(base_weight, n_dimensions, irrep)
+                    self.libs[irrep] = LibraryData([term for term in terms if term.rank == irrep], irrep)
                 case FullRank():
                     self.libs[irrep] = LibraryData([term for term in terms if term.rank == irrep.rank], irrep)
                 case Antisymmetric():
@@ -56,6 +57,7 @@ class SRDataset(AbstractDataset):  # structures all data associated with a given
         scaled_world_size = [int(s * self.cg_res) for s in self.world_size[:-1]] + [
             self.world_size[-1]]  # self.interp_factor *
         # padding by pad in original units on spatial dims
+        self.pad = pad # record the padding used
         pads = [np.ceil(pad * self.cg_res) for s in domain_size[:-1]] + [0] 
         self.domain_size = scaled_dims
         for i in range(ndomains):
@@ -83,10 +85,9 @@ class SRDataset(AbstractDataset):  # structures all data associated with a given
                     if dist <= self.scaled_sigma * self.cutoff:
                         self.domain_neighbors[domain, t].append(i)
 
-    def eval_prime(self, prime: IndexedPrimitive, domain: IntegrationDomain, experimental: bool = False, order: int = 4):
+    def eval_prime(self, prime: LibraryPrimitive, domain: IntegrationDomain, experimental: bool = False, order: int = 4):
         # experimental: bool = True,
         cgp = prime.derivand
-        obs_dims = prim.obs_dims
         if self.n_dimensions != 3:
             if experimental:
                 warnings.warn("Experimental method only implemented for 2D+1 systems")
@@ -96,14 +97,14 @@ class SRDataset(AbstractDataset):  # structures all data associated with a given
             pt_pos = self.scaled_pts[:, :, domain.times] / self.cg_res  # Unscaled positions
             pt_pos = np.float64(pt_pos)
             weights = np.ones_like(pt_pos[:, 0, :], dtype=np.float64)
-            obs_dim_ind = 0
-            for obs in cgp.obs_list:
-                if obs.rank == 0:
-                    data = self.data_dict[obs.string][:, 0, domain.times]
-                else:
-                    data = self.data_dict[obs.string][:, obs_dims[obs_dim_ind], domain.times]
+            for obs in cgp.observables:
+                obs_inds = map(obs.indices, lambda idx: idx.value)
+                #if obs.rank == 0:
+                #    data = self.data_dict[obs.string][:, 0, domain.times]
+                #else:
+                data = self.data_dict[obs.string][:, *obs_inds, domain.times]
                 weights *= data.astype(np.float64)
-                obs_dim_ind += obs.rank
+                #obs_dim_ind += obs.rank
             sigma = self.scaled_sigma / self.cg_res
             min_corner = domain.min_corner[:-1]
             max_corner = domain.max_corner[:-1]
@@ -116,7 +117,8 @@ class SRDataset(AbstractDataset):  # structures all data associated with a given
                 (yy / self.cg_res).ravel(),
             ]).T
             dist = sigma*np.sqrt(3+2*order)
-            #data_slice = poly_coarse_grain_time_slices(pt_pos, weights, xi, order, dist)
+            # uncomment if this isn't broken for you
+            #data_slice = poly_coarse_grain_time_slices(pt_pos, weights, xi, order, dist) 
             data_slice = data_slice.reshape(domain.shape)
         else:
             if self.domain_neighbors is None:
@@ -129,14 +131,15 @@ class SRDataset(AbstractDataset):  # structures all data associated with a given
                     particles = self.domain_neighbors[domain, t_shifted]
                     pt_pos = self.scaled_pts[particles, :, t_shifted] / self.cg_res
                     weights = np.ones_like(particles, dtype=np.float64)
-                    obs_dim_ind = 0
-                    for obs in cgp.obs_list:
-                        if obs.rank == 0:
-                            data = self.data_dict[obs.string][particles, 0, t_shifted]
-                        else:
-                            data = self.data_dict[obs.string][particles, obs_dims[obs_dim_ind], t_shifted]
+                    #obs_dim_ind = 0
+                    for obs in cgp.observables:
+                        obs_inds = map(obs.indices, lambda idx: idx.value)
+                        #if obs.rank == 0:
+                        #    data = self.data_dict[obs.string][:, 0, domain.times]
+                        #else:
+                        data = self.data_dict[obs.string][:, *obs_inds, domain.times]
                         weights *= data.astype(np.float64)
-                        obs_dim_ind += obs.rank
+                        #obs_dim_ind += obs.rank
                     sigma = self.scaled_sigma ** 2 / (self.cg_res ** 2)
                     # Check scipy version. If it's lower than 1.10, use inverse_covariance, otherwise use Cholesky
                     if int(scipy.__version__.split(".")[0]) <= 1 and int(scipy.__version__.split(".")[1]) < 10:

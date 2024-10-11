@@ -17,11 +17,12 @@ class SRDataset(AbstractDataset):
                 min_corner.append(num)
                 max_corner.append(num + L - 1)
             self.domains.append(IntegrationDomain(min_corner, max_corner))
+        self.pad = 0
         #return domains
 
     def eval_prime(self, prime, domain):
         name = prime.derivand.string
-        obs_inds = prime.derivand.indices
+        obs_inds = map(prime.derivand.indices, lambda idx: idx.value) # unpack the indices
 
         #if obs_inds is None:
         #    data_arr = self.data_dict[name]
@@ -46,7 +47,7 @@ class SRDataset(AbstractDataset):
         for irrep in self.irreps:
             match irrep:
                 case int():
-                    return full_basis(base_weight, n_dimensions, irrep)
+                    self.libs[irrep] = LibraryData([term for term in terms if term.rank == irrep], irrep)
                 case FullRank():
                     self.libs[irrep] = LibraryData([term for term in terms if term.rank == irrep.rank], irrep)
                 case Antisymmetric():

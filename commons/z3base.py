@@ -9,6 +9,8 @@ from dataclasses import dataclass, field, replace, KW_ONLY
 from itertools import count
 import z3
 
+lowercase_greek_letters = "αβγδεζηθικλμνξοπρστυφχψω"
+
 @dataclass(frozen=True)
 class SymmetryRep:
     _: KW_ONLY
@@ -92,7 +94,7 @@ class VarIndex:
             return self.value == other.value
 
     def __repr__(self):
-        return "αβγδεζηθικλμνξοπρστυφχψω"[self.value]
+        return lowercase_greek_letters[self.value]
 
 @dataclass(frozen=True)
 class LiteralIndex:
@@ -182,6 +184,9 @@ class EinSumExpr[T](ABC):
             nonlocal index_map
             return expr.map(expr_map=mapper, index_map=index_map)
         return mapper(self)
+
+    def purge_indices(self): # return a copy with only IndexHoles
+        return self.map_all_indices(index_map=lambda idx: IndexHole())
 
     def canonical_indexing_problem(self, idx_cache: defaultdict | None = None) -> tuple[EinSumExpr[SMTIndex], list[z3.ExprRef]]:
 

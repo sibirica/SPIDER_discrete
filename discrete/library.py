@@ -47,52 +47,6 @@ class CoarseGrainedProduct[T](EinSumExpr):
         sign = prod([pair[1] for pair in ecs], initial=1)
         return CoarseGrainedProduct(observables=tuple(sorted([pair[0] for pair in ecs]))), sign
 
-# # return LibraryTensors with fixed allocation of complexity
-# def raw_library_tensors(observables, orders, rank, max_order=None, zeroidx=0): 
-#     # basically: iteratively take any possible subset from [obs_orders; nrho; nt; nx] 
-#     # as long as it's lexicographically less than previous order; take at least one of first observable
-
-#     # print(orders, max_order, zeroidx)
-#     n = len(observables)
-#     if orders[n] == 0:
-#         if sum(orders) > 0:  # invalid distribution
-#             return
-#         else:
-#             yield ConstantTerm()
-#             return
-#     while zeroidx < n and orders[zeroidx] == 0:
-#         zeroidx += 1
-#     if zeroidx < n:
-#         orders[zeroidx] -= 1  # always put in at least one of these to maintain lexicographic order
-
-#     # orders = obs_orders + [nt, nx]
-#     # print("ORDERS: ", orders)
-#     for tup in yield_legal_tuples(orders[:n] + [0] + orders[n + 1:]):  # ignore the rho index which is deducted automatically
-#         orders_copy = orders.copy()
-#         popped_orders = list(tup)
-#         # print("Popped: ", popped_orders)
-#         for i in range(len(orders)):
-#             orders_copy[i] -= popped_orders[i]
-#         # all observables + rho popped but derivatives remain
-#         if sum(orders_copy[:-2]) == 0 and sum(orders_copy[-2:]) > 0:  
-#             continue  # otherwise we will have duplicates from omitting some derivatives
-#         if zeroidx < n:
-#             popped_orders[zeroidx] += 1  # re-adding the one
-#         orders_copy[n] -= 1  # account for the rho we used
-#         popped_orders[n] += 1  # include the rho here as well
-#         po_cl = tuple(popped_orders)
-#         if max_order is None or po_cl <= max_order:
-#             obs_list = []
-#             for i, order in enumerate(popped_orders[:-3]):  # rho appears automatically so stop at -3
-#                 obs_list += [observables[i]] * order
-#             cgp = CoarseGrainedPrimitive(obs_list[::-1])  # flip order of observables back to ascending
-#             do = DerivativeOrder(popped_orders[-2], popped_orders[-1])
-#             prim = LibraryPrimitive(do, cgp)
-#             term1 = LibraryTensor(prim)
-#             # for term2 in raw_library_tensors(observables, orders[:-2], orders[-2], orders[-1], max_order=max_order):
-#             for term2 in raw_library_tensors(observables, orders_copy, po_cl, zeroidx):
-#                 yield term2 * term1  # reverse order here to match canonicalization rules!
-
 def generate_terms_to(order: int,
                       observables: List[Observable],
                       max_rank: int = 2,
