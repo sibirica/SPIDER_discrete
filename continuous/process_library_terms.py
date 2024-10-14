@@ -22,7 +22,7 @@ class SRDataset(AbstractDataset):
 
     def eval_prime(self, prime, domain):
         name = prime.derivand.string
-        obs_inds = map(prime.derivand.indices, lambda idx: idx.value) # unpack the indices
+        obs_inds = map(lambda idx: idx.value, prime.derivand.indices) # unpack the indices
 
         #if obs_inds is None:
         #    data_arr = self.data_dict[name]
@@ -34,10 +34,10 @@ class SRDataset(AbstractDataset):
         orders = prime.derivative.get_spatial_orders()
         dimorders = [orders[i] for i in range(self.n_dimensions-1)]
         #dimorders = [order for _, order in prime.derivative.get_spatial_orders(max_idx=self.n_dimensions-1)]
-        dimorders += prime.derivative.torder
+        dimorders += [prime.derivative.torder]
         #if sum(dimorders) > 0:
         #    dimorders = [order for _, order in prime.derivative.get_spatial_orders()]
-        return diff(data_slice, dimorders, self.dxs)
+        return diff(data_slice, dimorders, self.dxs) if sum(dimorders)>0 else data_slice
         #return data_slice
     
     def make_libraries(self, max_complexity=4, max_observables=3):
@@ -59,28 +59,29 @@ class SRDataset(AbstractDataset):
                 #case _:
                 #    raise NotImplemented
 
-    def find_scales(data_dict, names=None):
+    def find_scales(self, names=None):
         # find mean/std deviation of fields in data_dict that are in names
-        scale_dict = dict()
-        for name in data_dict:
+        self.scale_dict = dict()
+        for name in self.data_dict:
             if names is None or name in names:
-                scale_dict[name] = dict()
-                scale_dict[name]['mean'] = np.mean(np.abs(data_dict[name]))
-                scale_dict[name]['std'] = np.std(data_dict[name])
-        return scale_dict
+                self.scale_dict[name] = dict()
+                # if these are vector quantities the results could be wonky in the unlikely
+                # case a vector field is consistently aligned with one of the axes
+                self.scale_dict[name]['mean'] = np.mean(
+                    np.linalg.norm(self.data_dict[name]) / np.sqrt(self.data_dict[name].size))
+                self.scale_dict[name]['std'] = np.std(self.data_dict[name])
 
-    def get_char_size(term, scale_dict, dx, dt):
+    def get_char_size(self, term):
         # return characteristic size of a library term
         product = 1
-        for primes in term.primes:
+        for prime in term.primes:
             xorder = prime.derivative.xorder
             torder = prime.derivative.torder
-            name = prime.observable.string
+            name = prime.derivand.string
             if torder + xorder > 0:
-                product *= scale_dict[name]['std']
+                product *= self.scale_dict[name]['std']
             else:
-                product *= scale_dict[name]['mean']
-            # scale by grid spacings for derivatives (should already be accounted for by findiff)
-            # product /= dx**xorder
-            # product /= dt**torder
-        return product if product > 0 else 1  # if the variable is always 0 then we'll get division by zero
+                product *= self.scale_dict[name]['mean']
+            product /= self.xscale ** xorder
+            product /= self.tscale ** torder
+        return product if product > 0 else 1 # if the variable is always 0 then we'll get division by zero

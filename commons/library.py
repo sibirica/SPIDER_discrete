@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field, replace, KW_ONLY
 from typing import List, Dict, Union, Tuple, Iterable, Generator
 from itertools import permutations
-from functools import cached_property, reduce, lru_cache
+from functools import cached_property, lru_cache#, reduce 
 from operator import add
 from collections import defaultdict, Counter
 
@@ -498,7 +498,7 @@ class LibraryPrime[T, Derivand](EinSumExpr):
         return self.derivative.xorder+self.derivative.torder
 
     def derivs_along(self, dim: Union[int, str]) -> int: # number of derivatives along 'dim' index
-        return self.derivative.get_all_orders[dim]
+        return self.derivative.get_all_orders()[dim]
 
     def succeeds(self, other: LibraryPrime, dim: int) -> bool: # check if d/d(dim) other==self
         if self.derivand != other.derivand:

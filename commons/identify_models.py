@@ -1,14 +1,15 @@
 # It may or may not be nicer to take the SRDataset object as input for some of these
 from timeit import default_timer as timer
 from functools import reduce
-from operators import add
+from operator import add
 
 from library import *
 from commons.sparse_reg import *
 from commons.sparse_reg_bf import *
     
 def identify_equations(Q, reg_opts, library, print_opts=None, threshold=1e-5, min_complexity=1, # ranks=None,
-                       max_complexity=None, max_equations=999, timed=True, excluded_terms=None, primes=None):
+                       max_complexity=None, max_equations=999, timed=True, experimental=True,
+                       excluded_terms=None, primes=None):
     if timed:
         start = timer()
     equations = []
@@ -18,13 +19,13 @@ def identify_equations(Q, reg_opts, library, print_opts=None, threshold=1e-5, mi
     #    ranks = (0, 1, 2)
     if print_opts is None:
         #print_opts = {sigfigs: 3, latex_output: False}
-        print_opts = {num_format: '{0:.3g}', latex_output: False}
+        print_opts = {'num_format': '{0:.3g}', 'latex_output:': False}
     if excluded_terms is None:
         excluded_terms = set()
     # this can be eliminated by keeping track of two different max_complexities in args
     lib_max_complexity = max([term.complexity for term in library])  # generate list of derived terms up to here
     if max_complexity is None:
-        max_complexity = lib_max_complexity
+        max_complexity = int(np.ceil(lib_max_complexity))
     if primes is None:
         primes = get_primes(library, max_complexity)
     for complexity in range(min_complexity, max_complexity + 1):
@@ -35,9 +36,17 @@ def identify_equations(Q, reg_opts, library, print_opts=None, threshold=1e-5, mi
                 break
             sublibrary = [s[0] for s in selection]
             inds = [s[1] for s in selection]
-            reg_opts['subinds'] = inds
             # identify model
-            eq, res = make_equation_from_Xi(*sparse_reg(Q, **reg_opts), sublibrary)
+            if experimental:
+                # only difference in bf regression conventions is that Xi corresponds to full library
+                reg_opts['scaler'].reset_inds(inds)
+                #print(reg_opts)
+                eq, res = make_equation_from_Xi(*sparse_reg_bf(Q, **reg_opts), library)
+            else:
+                reg_opts['subinds'] = inds
+                eq, res = make_equation_from_Xi(*sparse_reg(Q, **reg_opts), sublibrary)
+            if 'verbose' in reg_opts.keys() and reg_opts['verbose']:
+                print('Result:', eq, '. residual:', res)
             if res > threshold:
                 break
             equations.append(eq)
@@ -47,7 +56,7 @@ def identify_equations(Q, reg_opts, library, print_opts=None, threshold=1e-5, mi
                 # noinspection PyUnboundLocalVariable
                 time = timer() - start
                 print(f"[{time:.2f} s]")
-            print(f'Identified model: {eq.pstr(print_opts)} (order {complexity}, residual {res:.2e})')
+            print(f'Identified model: {eq.pstr(**print_opts)} (order {complexity}, residual {res:.2e})')
             # eliminate terms via infer_equations
             derived_eqns[str(eq)] = []
             for new_eq in infer_equations(eq, multipliers, lib_max_complexity):
@@ -57,9 +66,9 @@ def identify_equations(Q, reg_opts, library, print_opts=None, threshold=1e-5, mi
                 derived_eqns[str(eq)].append(form_equation(lhs, rhs))
     return equations, lambdas, derived_eqns, excluded_terms
 
-
 def interleave_identify(Qs, reg_opts_list, libraries, print_opts=None, threshold=1e-5, min_complexity=1,  # ranks = None
-                        max_complexity=None, max_equations=999, timed=True, excluded_terms=None):
+                        max_complexity=None, max_equations=999, timed=True, experimental=True,
+                        excluded_terms=None):
     equations = []
     lambdas = []
     derived_eqns = {}
@@ -67,10 +76,9 @@ def interleave_identify(Qs, reg_opts_list, libraries, print_opts=None, threshold
     #    ranks = (0, 1, 2)
     if excluded_terms is None:
         excluded_terms = set()
-    lib_max_complexity = max([term.complexity for library in libraries for term in library])
     if max_complexity is None:
-        max_complexity = lib_max_complexity
-    concat_libs = reduce(add, libraries, initial=[])
+        max_complexity = int(np.ceil(max([term.complexity for library in libraries for term in library])))
+    concat_libs = reduce(add, libraries, [])
     primes = get_primes(concat_libs, max_complexity)
     for complexity in range(min_complexity, max_complexity + 1):
         for Q, reg_opts, library in zip(Qs, reg_opts_list, libraries):
@@ -80,7 +88,8 @@ def interleave_identify(Qs, reg_opts_list, libraries, print_opts=None, threshold
                                                                         max_complexity=complexity,
                                                                         max_equations=max_equations, timed=timed,
                                                                         excluded_terms=excluded_terms,
-                                                                        multipliers=multipliers)
+                                                                        experimental=experimental, primes=primes)
+        
             equations += eqs_i
             lambdas += lbds_i
             derived_eqns.update(der_eqns_i)
