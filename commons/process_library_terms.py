@@ -44,6 +44,7 @@ class Weight(object): # scalar-valued Legendre polynomial weight function (may r
     n_spatial_dim: int = None
     scale: float = 1
     ready: bool = False
+    weight_objs: List[np.polynomial.Polynomial] = None
         
     def __post_init__(self):
         self.n_dimensions = len(self.m)
@@ -114,9 +115,17 @@ def multi_index_iterator(n_dimensions, rank):
 
 @dataclass
 class TensorWeight: # tensor-valued weight function 
-    weight_dict: dict[tuple[int], Weight] # dict mapping tuples to weight functions
+    weight_dict: dict[tuple[int, ...], Weight] # dict mapping tuples to weight functions
     rank: int # rank of tensor/library
     n_spatial_dim: int # number of spatial dimensions of data
+    #n_dimensions: int = None # total number of dimensions = spatial+1
+
+    #def __post_init__(self):
+    #    self.n_dimensions = self.n_spatial_dim+1
+
+    @cached_property
+    def n_dimensions(self):
+        return self.n_spatial_dim+1
 
     def __getitem__(self, input): # return entry of weight at specific multiindex
         #print(self.weight_dict, 'x', input) 
@@ -137,7 +146,7 @@ class TensorWeight: # tensor-valued weight function
         return self.weight_map(lambda w: number*w)
 
     def __repr__(self):
-        return repr(weight_dict)
+        return repr(self.weight_dict)
 
     __rmul__ = __mul__
 
@@ -161,7 +170,7 @@ class FactoredTensorWeight(TensorWeight):
                                     base_weight=base_weight, tensor=tensor)
 
     def __repr__(self):
-        return f"{tensor} * {base_weight}"
+        return f"{self.tensor} * {self.base_weight}"
 
 @dataclass
 class TensorWeightBasis: # basis of TensorWeights to span desired space
@@ -169,8 +178,8 @@ class TensorWeightBasis: # basis of TensorWeights to span desired space
     nonzero_indices: list[list[int]] # indices that need to be evaluated in product with this TensorWeight      
     
     @staticmethod
-    def scalar_basis(base_weight):
-        tw = TensorWeight({(): base_weight}, 0, None)
+    def scalar_basis(base_weight, n_dimensions):
+        tw = TensorWeight(weight_dict={(): base_weight}, rank=0, n_spatial_dim=n_dimensions)
         nz_inds = [()]
         return TensorWeightBasis([tw], nz_inds)
     
@@ -238,22 +247,22 @@ class TensorWeightBasis: # basis of TensorWeights to span desired space
     def make_basis(base_weight, n_dimensions, irrep): # choose TWS constructor based on irrep
         match irrep:
             case 0:
-                return TensorWeightBasis.scalar_basis(base_weight)
+                return TensorWeightBasis.scalar_basis(base_weight, n_dimensions)
             case 1:
                 return TensorWeightBasis.vector_basis(base_weight, n_dimensions) # the general one should probably work fine
             case int():
                 return TensorWeightBasis.full_basis(base_weight, n_dimensions, irrep)
             case FullRank(rank=rank):
                 return TensorWeightBasis.full_basis(base_weight, n_dimensions, rank) if rank!=0 else \
-                       TensorWeightBasis.scalar_basis(base_weight)
+                       TensorWeightBasis.scalar_basis(base_weight, n_dimensions)
             case Antisymmetric(rank=2):
                 return TensorWeightBasis.anti_rank2_basis(base_weight, n_dimensions)
             case SymmetricTraceFree(rank=2):
-                return TensorWeightBasis.stf_rank2(base_weight, n_dimensions)
+                return TensorWeightBasis.stf_rank2_basis(base_weight, n_dimensions)
             case _: # shouldn't be reachable under normal conditions
                 print("Warning: weird irrep")
                 if irrep.rank == 0:
-                    return TensorWeightBasis.scalar_basis(base_weight)
+                    return TensorWeightBasis.scalar_basis(base_weight, n_dimensions)
                 if irrep.rank == 1:
                     return TensorWeightBasis.vector_basis(base_weight, n_dimensions) # the general one should probably work fine too
                 else:
@@ -262,7 +271,7 @@ class TensorWeightBasis: # basis of TensorWeights to span desired space
 
 def lists_for_N(nloops, loop_max):
     if nloops == 0:
-        #yield []
+        yield []
         return
     for i in range(loop_max + 1):
         for li in lists_for_N(nloops - 1, loop_max):
@@ -287,12 +296,12 @@ class AbstractDataset(object): # template for structure of all data associated w
     data_dict: Dict[Observable, np.ndarray[float]] # observable -> array of values (e.g. discrete - particle, spatial index, time)
     observables: List[Observable]  # list of observables
     # storage of computed quantities: (prim, domains) [not dims] -> array
-    field_dict: dict[tuple[Any], np.ndarray[float]] = None 
+    field_dict: dict[tuple[Any, ...], np.ndarray[float]] = None 
     
     dxs: List[float] = None # grid spacings
     weight_dxs: List[float] = None
     scalar_weights: List[Weight] = None
-    tensor_weight_basis: Dict[Tuple[Union[int, Irrep, Weight]], TensorWeightBasis] = field(default_factory=dict)  # (irrep, weight) -> stack
+    tensor_weight_basis: Dict[Tuple[Union[int, Irrep, Weight], ...], TensorWeightBasis] = field(default_factory=dict)  # (irrep, weight) -> stack
     # size of domain in grid units (NOT SUBGRID UNITS, AS ACTUALLY USED IN DISCRETE COMPUTATION)
     domain_size: List[float] = None 
     domains: List[IntegrationDomain] = None
@@ -309,6 +318,7 @@ class AbstractDataset(object): # template for structure of all data associated w
 
     def __post_init__(self):
         self.n_dimensions = len(self.world_size) # number of dimensions (spatial + temporal)
+        # consider n_spatial_dim field
         self.field_dict = dict()
         if self.metric is None: 
             self.metric = Metric(n_dimensions=self.n_dimensions)
@@ -322,6 +332,10 @@ class AbstractDataset(object): # template for structure of all data associated w
         # recompute Q etc.
         new_srd.make_library_matrices(debug=False)
         return new_srd
+
+    @classmethod
+    def all_rank2_irreps(cls):
+        return (FullRank(rank=0), FullRank(rank=1), Antisymmetric(rank=2), SymmetricTraceFree(rank=2)) 
     
     def make_libraries(self, max_complexity=4, max_observables=3, max_rho=999): # populate libs
         pass
@@ -334,9 +348,11 @@ class AbstractDataset(object): # template for structure of all data associated w
         self.weight_dxs = [(width - 1) / 2 * dx for width, dx in zip(self.domain_size, self.dxs)]
         for q in lists_for_N(self.n_dimensions, qmax):
             weight = Weight([m] * self.n_dimensions, q, [0] * self.n_dimensions, dxs=self.weight_dxs)
+            #print("q", q, "weight", weight)
             self.weights.append(weight)
             for irrep in self.irreps:
-                self.tensor_weight_basis[irrep, weight] = TensorWeightBasis.make_basis(weight, self.n_dimensions, irrep)
+                # note that we need to count spatial dimensions for this
+                self.tensor_weight_basis[irrep, weight] = TensorWeightBasis.make_basis(weight, self.n_dimensions-1, irrep)
 
     # generate indexed term/weight pairs corresponding to concrete index of unindexed term
     # def get_tw_pairs(self, term, base_weight, indices, debug=False): 
@@ -365,35 +381,67 @@ class AbstractDataset(object): # template for structure of all data associated w
     #         else:
     #             yield indexed_term, base_weight
 
+    def get_index_assignments(self, term, tensor_weight, debug=True): # ONLY IMPLEMENTING FOR SIMPLER IDENTITY METRIC CASE
+        n_spatial_dims = self.n_dimensions-1
+        if self.metric_is_identity: # simplest evaluation - just sum over all assignments
+            n_indices_to_assign = highest_index(term.all_indices())+1 if term.all_indices() else 0
+            if debug:
+                print("All indices:", term.all_indices())
+                print("# of indices to assign:", n_indices_to_assign)
+            for assignment in lists_for_N(n_indices_to_assign, n_spatial_dims-1): # assignments only along spatial indices
+            #for assignment in lists_for_N(term.rank, n_spatial_dims-1): # assignments only along spatial indices
+                #def assign_fun(idx):
+                #    return LiteralIndex(assignment[idx.value]) if idx.value<term.rank else idx
+                if debug:
+                    print("Index assignment:", assignment)
+                assigned_term = term.map_all_indices(index_map=lambda idx:LiteralIndex(assignment[idx.value])) if assignment else term
+                scalar_weight = tensor_weight[*tuple(assignment)[:term.rank]] #if assignment else scalar_weight
+                if debug:
+                    print("Indexed term:", assigned_term)
+                    print("Indexed weight:", scalar_weight)
+                yield assigned_term, scalar_weight
+                #total += self.eval_term(assigned_term, domain, debug) * scalar_weight.get_weight_array(domain.shape)
+        else:
+            raise NotImplemented
     
     def eval_on_domain(self, term, weight, domain, debug=False):
-        n_spatial_dims = self.n_dimensions-1
-        total = np.zeros(domain.shape)
-        if self.metric_is_identity: # simplest evaluation - just sum over all assignments
-            for assignment in lists_for_N(highest_index(term.all_indices()), n_spatial_dims-1): # assignments only along spatial indices
-                #def assign_fun(idx):
-                #    return LiteralIndex(assignment[idx.value]) if idx.value<term.rank else idx
-                print(assignment)
-                assigned_term = term.map_all_indices(index_map=lambda idx:LiteralIndex(assignment[idx.value]))
-                #print(assignment)
-                scalar_weight = weight[*tuple(assignment)[:term.rank]] #if assignment is not None else 
-                total += self.eval_term(assigned_term, domain, debug) * scalar_weight.get_weight_array(domain.shape)
-        else:
-            td_values = defaultdict(lambda: np.zeros(domain.shape))
-            w_values = defaultdict(lambda: np.zeros(domain.shape))
-            for assignment in lists_for_N(highest_index(term.all_indices()), n_spatial_dims-1): # assignments only along spatial indices
-                #def assign_fun(idx):
-                #    return LiteralIndex(assignment[idx.value]) if idx.value<term.rank else idx
-                assigned_term = term.map_all_indices(index_map=lambda idx:LiteralIndex(assignment[idx.value]))
-                td_values[assignment[:term.rank]] += self.eval_term(assigned_term, domain, debug) 
-            for free_assignment in lists_for_N(term.rank, n_spatial_dims-1):
-                w_values[free_assignment] = weight[free_assignment].get_weight_array(domain.shape)
-                for assignment_2 in lists_for_N(term.rank, n_spatial_dims-1):
-                    total += w_values[free_assignment] * td_values[assignment_2] * \
-                    self.metric_effect(free_assignment, assignment_2)
+        # n_spatial_dims = self.n_dimensions-1
+        # total = np.zeros(domain.shape)
+        # if self.metric_is_identity: # simplest evaluation - just sum over all assignments
+        #     n_indices_to_assign = highest_index(term.all_indices())+1 if term.all_indices() else 0
+        #     if debug:
+        #         print("All indices:", term.all_indices())
+        #         print("# of indices to assign:", n_indices_to_assign)
+        #     for assignment in lists_for_N(n_indices_to_assign, n_spatial_dims-1): # assignments only along spatial indices
+        #     #for assignment in lists_for_N(term.rank, n_spatial_dims-1): # assignments only along spatial indices
+        #         #def assign_fun(idx):
+        #         #    return LiteralIndex(assignment[idx.value]) if idx.value<term.rank else idx
+        #         if debug:
+        #             print("Index assignment:", assignment)
+        #         assigned_term = term.map_all_indices(index_map=lambda idx:LiteralIndex(assignment[idx.value])) if assignment else term
+        #         scalar_weight = weight[*tuple(assignment)[:term.rank]] #if assignment else scalar_weight
+        #         if debug:
+        #             print("Indexed term:", assigned_term)
+        #             print("Indexed weight:", scalar_weight)
+        #         total += self.eval_term(assigned_term, domain, debug) * scalar_weight.get_weight_array(domain.shape)
+        # else: # NOTE: no debugging for this case yet
+        #     td_values = defaultdict(lambda: np.zeros(domain.shape))
+        #     w_values = defaultdict(lambda: np.zeros(domain.shape))
+        #     for assignment in lists_for_N(highest_index(term.all_indices()), n_spatial_dims-1): # assignments only along spatial indices
+        #     #for assignment in lists_for_N(term.rank, n_spatial_dims-1): # assignments only along spatial indices
+        #         #def assign_fun(idx):
+        #         #    return LiteralIndex(assignment[idx.value]) if idx.value<term.rank else idx
+        #         assigned_term = term.map_all_indices(index_map=lambda idx:LiteralIndex(assignment[idx.value]))
+        #         td_values[assignment[:term.rank]] += self.eval_term(assigned_term, domain, debug) 
+        #     for free_assignment in lists_for_N(term.rank, n_spatial_dims-1):
+        #         w_values[free_assignment] = weight[free_assignment].get_weight_array(domain.shape)
+        #         for assignment_2 in lists_for_N(term.rank, n_spatial_dims-1):
+        #             total += w_values[free_assignment] * td_values[assignment_2] * \
+        #             self.metric_effect(free_assignment, assignment_2)
 
-        return total
+        return int_arr(self.eval_term(term, domain, debug) * weight.get_weight_array(domain.shape), dxs=self.dxs)
 
+    # to be used in non-identity metric case
     def metric_effect(self, inds1, inds2):
         product = 1
         for ind1, ind2 in zip(inds1, inds2):
@@ -407,11 +455,11 @@ class AbstractDataset(object): # template for structure of all data associated w
         product = np.ones(shape=domain.shape)
         if isinstance(term, ConstantTerm): # short-circuit
             return product
-        if debug:
-            print(f"LibraryTerm {term}")
+        #if debug:
+        #    print(f"LibraryTerm {term}")
         for prime in term.primes:
-            if debug:
-                print(f"LibraryPrime {prime}")
+        #    if debug:
+        #        print(f"LibraryPrime {prime}")
             if (prime, domain) in self.field_dict.keys():  # field is "cached"
                 data_slice = self.field_dict[prime, domain]
             else:
@@ -449,28 +497,51 @@ class AbstractDataset(object): # template for structure of all data associated w
         #for tensor(term, tensor_weight, domain) in self.tuple_iterator(irrep):
         cols_list = []
         #n_spatial_dims = self.n_dimensions-1
-        if isinstance(irrep, SymmetryRep):
-            rank = irrep.rank
-        else:
-            rank = irrep
-        for term in self.libs[rank].terms:
+        #if isinstance(irrep, SymmetryRep):
+        #    rank = irrep.rank
+        #else:
+        #    rank = irrep
+        #for term in self.libs[rank].terms:
+        for term in self.libs[irrep].terms:
+            if debug:
+                print("UNINDEXED TERM:")
+                print(term)
             column = []
             term_symmetry = term.symmetry()
-            #pv_dict = dict()
+            if debug:
+                print("Symmetry:", term_symmetry)
+            wd_dict = defaultdict(int) # group by weight/domain, aggregate by assignment & integration by parts term
             for weight in self.weights:
                 for tensor_weight in self.tensor_weight_basis[irrep, weight].tw_list:
+                    if debug:
+                        print("Tensor weight:", tensor_weight)
                     # compute weight(term) on each domain: w(t)|d = sum_(wi'(ti'))|d
-                    term_weight_pairs = int_by_parts(term, weight)
-                    for domain in self.domains:
-                        #match irrep:
-                        #    case SymmetricTraceFree() if term_symmetry==-1:
-                        #        wtd = 0
-                        #    case Antisymmetric() if term_symmetry==1:
-                        #        wtd = 0
-                        #    case _:  
-                        wtd = sum([self.eval_on_domain(term, tensor_weight, domain) 
-                                   for term, weight in term_weight_pairs])
-                        column.append(wtd)
+                    for indexed_term, scalar_weight in self.get_index_assignments(term, tensor_weight, debug):
+                        if debug:
+                            print("Indexed weight:", indexed_term)
+                            print("Scalar weight:", scalar_weight)
+                        for t, w in int_by_parts(indexed_term, scalar_weight):
+                            if debug:
+                                print("Integrated term:", t)
+                                print("Integrated weight:", w)
+                            for domain in self.domains:
+                                #if debug:
+                                #    print("Domain:", domain)
+                                
+                                #match irrep:
+                                #    case SymmetricTraceFree() if term_symmetry==-1:
+                                #        wtd = 0
+                                #    case Antisymmetric() if term_symmetry==1:
+                                #        wtd = 0
+                                #    case _:  
+                                ##wtd = sum([self.eval_on_domain(t, w, domain, debug=debug) 
+                                           #for t, w in term_weight_pairs])
+                                
+                                wd_dict[weight, domain] += self.eval_on_domain(t, w, domain, debug=debug)
+                                #if debug:
+                                #    print("weight/term/domain evaluation (current):", wd_dict[weight, domain])
+
+                        ##column.append(wtd)
                     
                     # if self.metric_is_identity: # don't evaluate each index of term if they vanish due to symmetry
                     #     evaled_term_indices = tensor_weight.nonzero_indices
@@ -496,9 +567,11 @@ class AbstractDataset(object): # template for structure of all data associated w
                     # for domain in domains:
                     #     arr = self.shortcut_trace(pv_dict[tensor_weight, domain], tensor_weight.tensor)
                     #     column.append(int_arr(arr, self.dxs)) # integrate the product array
-    
+            for weight in self.weights:
+                for domain in self.domains:
+                    column.append(wd_dict[weight, domain])
             cols_list.append(column)
-        return np.array(cols_list).transpose # convert to numpy array
+        return np.array(cols_list).transpose() # convert to numpy array
         
     def make_library_matrices(self, by_parts=True, debug=False): # compute LibraryData Q matrices
         for irrep in self.irreps:
@@ -542,7 +615,9 @@ def int_by_parts(term, weight, dim=0):
     #    yield term, weight
     #else:
     failed = False
+    #print("START:", term, weight, dim)
     for te, we, fail in int_by_parts_dim(term, weight, dim):  # try to integrate by parts
+        #print(te, we, fail)
         failed = (failed or fail)
         if failed:  # can't continue, so go to next dimension
             if dim=='t':
@@ -559,18 +634,25 @@ def int_by_parts(term, weight, dim=0):
 # too difficult to automate; at that point it's probably easier to just write the term out manually.
 
 # match statement for scalar or tensor weight?
-def int_by_parts_dim(term, weight, dim):
+def int_by_parts_dim(term, weight, dim, debug=False):
+    #debug = True
     # find best prime to base integration off of
     best_prime, next_prime = None, None
     num_next = 0
-    for (i, prime) in enumerate(term.primes):
+    for prime in term.primes:
         if prime.nderivs == term.max_prime_derivatives():
+            if debug:
+                print("Found best prime:", prime)
             if best_prime is None:
-                best_i, best_prime = i, prime
+                best_prime = prime
                 if prime.derivs_along(dim) == 0:  # can't integrate by parts along this dimension
+                    if debug:
+                        print("Terminate: no derivatives along", dim)
                     yield term, weight, True
                     return
             else:  # multiple candidate terms -> integrating by parts will not help
+                if debug:
+                    print("Terminate: multiple best primes")
                 yield term, weight, True
                 return
         elif prime.nderivs == term.max_prime_derivatives() - 1:
@@ -580,19 +662,30 @@ def int_by_parts_dim(term, weight, dim):
                 num_next += 1
             else:  # not all one-lower terms are successors of best_prime -> can't integrate further
                 yield term, weight, True
+    if debug:
+        print(dim, "&", weight, 'with dimensions', weight.n_dimensions)
     new_weight = weight.increment(dim if dim!='t' else weight.n_dimensions-1)
     new_prime = best_prime.antidiff(dim)
-    # print(term, best_prim)
+    if debug:
+        print("TERM", term, "best_prime", best_prime)
+        print("antidiffs to", new_prime)
     rest = term.drop(best_prime)
     # check viability by cases
     if next_prime is None:  # then all other terms have derivatives up to order n-2, so we are in x' case
+        if debug:
+            print("Success: other derivative orders are n-2")
         for summand in rest.diff(dim):
             yield new_prime * summand, -weight, False
+        #print(new_prime.derivative.x_derivatives, rest)
         yield new_prime * rest, -new_weight, False
         return
     else:
-        # print(rest, next_prim)
-        if next_prime.succeeds(best_prime, dim):  # check if next goes with best
+        if debug:
+            print('n-1 case?')
+            print('rest', rest, 'next_prime', next_prime)
+        if next_prime==new_prime: #next_prime.succeeds(best_prime, dim):  # check if next goes with best
+            if debug:
+                print("Success: x'*x type case")
             #rest = rest.drop_all(next_prime)
             for i in range(num_next):
                 rest = rest.drop(next_prime) # these are not differentiated
@@ -601,6 +694,8 @@ def int_by_parts_dim(term, weight, dim):
                 yield ES_prod(*([next_prime]*num_dupes), summand), -1 / num_dupes * weight, False
             yield ES_prod(*([next_prime]*num_dupes), rest), -1 / num_dupes * new_weight, False
         else: # can't integrate by parts
+            if debug:
+                print("Terminate: next derivative too close and doesn't match")
             yield term, weight, True
 
 def diff(data, dorders, dxs=None, acc=6):

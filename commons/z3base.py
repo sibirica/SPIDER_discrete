@@ -41,14 +41,23 @@ Irrep = Antisymmetric | SymmetricTraceFree | FullRank
 class IndexHole:
     #id: int = field(default_factory=lambda counter=count(): next(counter))
     def __lt__(self, other):
-        if not isinstance(other, IndexHole):
-            raise TypeError(f"Operation not supported between instances of '{type(self)}' and '{type(other)}'")
-        else:
+        if isinstance(other, IndexHole): #or isinstance(other, VarIndex):
             return False
+        elif isinstance(other, VarIndex):
+            return True
+        else:
+            raise TypeError(f"Operation not supported between instances of '{type(self)}' and '{type(other)}'")
+
+    def __gt__(self, other):
+        if isinstance(other, (IndexHole, VarIndex)):
+            return False
+        else:
+            raise TypeError(f"Operation not supported between instances of '{type(self)}' and '{type(other)}'")
 
     def __eq__(self, other):
         if not isinstance(other, IndexHole):
-            raise TypeError(f"Operation not supported between instances of '{type(self)}' and '{type(other)}'")
+            return False
+            #raise TypeError(f"Operation not supported between instances of '{type(self)}' and '{type(other)}'")
         else:
             return True
 
@@ -82,32 +91,51 @@ class VarIndex:
     src: Any = None
 
     def __lt__(self, other):
-        if not isinstance(other, VarIndex):
-            raise TypeError(f"Operation not supported between instances of '{type(self)}' and '{type(other)}'")
+        if isinstance(other, str):
+            return True # 't' always goes after spatial indices
+        elif not isinstance(other, VarIndex):
+            return NotImplemented
+            #raise TypeError(f"'<' not supported between ({repr(self)} : {type(self)}) and ({repr(other)} : {type(other)})")
         else:
             return self.value < other.value
 
+    # def __gt__(self, other):
+    #     if not isinstance(other, VarIndex):
+    #         raise TypeError(f"'>' not supported between ({repr(self)} : {type(self)}) and ({repr(other)} : {type(other)})")
+    #     else:
+    #         return self.value < other.value
+
     def __eq__(self, other):
-        if not isinstance(other, VarIndex):
-            raise TypeError(f"Operation not supported between instances of '{type(self)}' and '{type(other)}'")
+        if isinstance(other, str):
+            return False # 't' is different from spatial indices
+        elif not isinstance(other, VarIndex):
+            return NotImplemented
+            #raise TypeError(f"'=' not supported between ({repr(self)} : {type(self)}) and ({repr(other)} : {type(other)})")
         else:
             return self.value == other.value
 
     def __repr__(self):
         return lowercase_greek_letters[self.value]
 
+    def __hash__(self):
+        return hash(self.value)
+
 @dataclass(frozen=True)
 class LiteralIndex:
     value: int
 
     def __lt__(self, other):
-        if not isinstance(other, LiteralIndex):
+        if isinstance(other, str):
+            return True # 't' always goes after spatial indices
+        elif not isinstance(other, LiteralIndex):
             raise TypeError(f"Operation not supported between instances of '{type(self)}' and '{type(other)}'")
         else:
             return self.value < other.value
 
     def __eq__(self, other):
-        if not isinstance(other, LiteralIndex):
+        if isinstance(other, str):
+            return True # 't' always goes after spatial indices
+        elif not isinstance(other, LiteralIndex):
             raise TypeError(f"Operation not supported between instances of '{type(self)}' and '{type(other)}'")
         else:
             return self.value == other.value
@@ -189,7 +217,6 @@ class EinSumExpr[T](ABC):
         return self.map_all_indices(index_map=lambda idx: IndexHole())
 
     def canonical_indexing_problem(self, idx_cache: defaultdict | None = None) -> tuple[EinSumExpr[SMTIndex], list[z3.ExprRef]]:
-
         base_id = f"i{id(self)}"
         def next_z3_var():
             return free_z3_var(base_id)

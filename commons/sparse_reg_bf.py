@@ -47,7 +47,7 @@ class Scaler(object): # pre- and postprocessing by scaling/nondimensionalizing d
         model *= self.char_sizes  # renormalize by characteristic size
         return model
         
-    def postprocess_multi_term(self, xi, lambd, norm, verbose): # Xi postprocessing
+    def postprocess_multi_term(self, xi, lambd, norm, verbose=False): # Xi postprocessing
         full_xi = np.zeros(shape=(self.full_w,))
         xi = xi / self.char_sizes  # renormalize by char. size
         if -min(xi) > max(xi):  # ensure vectors are "positive"
@@ -60,7 +60,7 @@ class Scaler(object): # pre- and postprocessing by scaling/nondimensionalizing d
             print("final lambda:", lambd)
         return full_xi, lambd/norm
         
-    def postprocess_single_term(self, best_term, lambda1, norm, verbose):
+    def postprocess_single_term(self, best_term, lambda1, norm, verbose=False):
         if verbose:
             print("final lambda1:", lambda1/norm)
         return self.sub_inds[best_term], lambda1/norm
@@ -400,7 +400,8 @@ def sparse_reg_bf(theta, scaler, initializer, residual, model_iterator, threshol
     if w == 0:  # no inds allowed at all
         return None, np.inf, None, np.inf
     if w == 1:  # no regression to run
-        best_term, lambda1 = scaler.postprocess_single_term(best_term, lambda1)
+        norm = residual.norm if hasattr(residual, 'norm') else 1
+        best_term, lambda1 = scaler.postprocess_single_term(best_term, lambda1, norm, verbose)
         return [1], np.inf, best_term, lambda1
         
     ### INITIAL MODEL

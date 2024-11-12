@@ -1,4 +1,4 @@
-from scipy.interpolate import interp1d
+#from scipy.interpolate import interp1d
 from library import *
 
 
@@ -98,7 +98,7 @@ def term_plus_inds(string, obs_dict):
     return obs, inds1, inds2
 
 
-def resample_grid(data, grid_coords, new_coords, axis, order=3):
-    interp_data = np.array(data)
-    f = interp1d(grid_coords, data, kind=order, axis=axis)
-    return f(new_coords)
+# def resample_grid(data, grid_coords, new_coords, axis, order=3):
+#     interp_data = np.array(data)
+#     f = interp1d(grid_coords, data, kind=order, axis=axis)
+#     return f(new_coordss)

@@ -9,7 +9,7 @@ from commons.library import *
 from library import *
 from scipy.stats._stats import gaussian_kernel_estimate
 # uncomment if this isn't broken for you
-#from coarse_grain_utils import coarse_grain_time_slices, poly_coarse_grain_time_slices
+from coarse_grain_utils import coarse_grain_time_slices, poly_coarse_grain_time_slices
 
 @dataclass(kw_only=True)
 class SRDataset(AbstractDataset):  # structures all data associated with a given sparse regression dataset
@@ -118,7 +118,7 @@ class SRDataset(AbstractDataset):  # structures all data associated with a given
             ]).T
             dist = sigma*np.sqrt(3+2*order)
             # uncomment if this isn't broken for you
-            #data_slice = poly_coarse_grain_time_slices(pt_pos, weights, xi, order, dist) 
+            data_slice = poly_coarse_grain_time_slices(pt_pos, weights, xi, order, dist) 
             data_slice = data_slice.reshape(domain.shape)
         else:
             if self.domain_neighbors is None:

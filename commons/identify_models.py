@@ -19,7 +19,7 @@ def identify_equations(Q, reg_opts, library, print_opts=None, threshold=1e-5, mi
     #    ranks = (0, 1, 2)
     if print_opts is None:
         #print_opts = {sigfigs: 3, latex_output: False}
-        print_opts = {'num_format': '{0:.3g}', 'latex_output:': False}
+        print_opts = {'num_format': '{0:.3g}', 'latex_output': False}
     if excluded_terms is None:
         excluded_terms = set()
     # this can be eliminated by keeping track of two different max_complexities in args
@@ -36,6 +36,12 @@ def identify_equations(Q, reg_opts, library, print_opts=None, threshold=1e-5, mi
                 break
             sublibrary = [s[0] for s in selection]
             inds = [s[1] for s in selection]
+            
+            #print('Sublibrary:', sublibrary, 'inds:', inds)
+            #print('Excluded terms:', excluded_terms, [hash(t.primes[0].derivand) for t in excluded_terms])
+            #for term in sublibrary:
+            #    print(f"{term} with p0_hash {hash(term.primes[0].derivand)} in {excluded_terms}? {term in excluded_terms}")
+            
             # identify model
             if experimental:
                 # only difference in bf regression conventions is that Xi corresponds to full library
@@ -59,10 +65,16 @@ def identify_equations(Q, reg_opts, library, print_opts=None, threshold=1e-5, mi
             print(f'Identified model: {eq.pstr(**print_opts)} (order {complexity}, residual {res:.2e})')
             # eliminate terms via infer_equations
             derived_eqns[str(eq)] = []
-            for new_eq in infer_equations(eq, multipliers, lib_max_complexity):
+            for new_eq in infer_equations(eq, primes, lib_max_complexity):
                 lhs, rhs = new_eq.eliminate_complex_term()
-                # print(lhs)
+                if 'verbose' in reg_opts.keys() and reg_opts['verbose']:
+                    print("Inferred equation:", new_eq)
+                    print("Excluded term:", lhs)
                 excluded_terms.add(lhs)
+                #for t in excluded_terms:
+                #    print(f"{lhs} =? {t}:", lhs==t)
+                #if 'verbose' in reg_opts.keys() and reg_opts['verbose']:
+                #    print("All excluded terms so far:", excluded_terms)
                 derived_eqns[str(eq)].append(form_equation(lhs, rhs))
     return equations, lambdas, derived_eqns, excluded_terms
 
@@ -105,33 +117,45 @@ def make_equation_from_Xi(Xi, lambd, best_term, lambda1, sublibrary):
 
 def infer_equations(equation, primes, max_complexity, complexity=None):
     #yield equation
-    # do all of the contractions in one step so we don't have different permutations of contraction & index creation 
     if complexity is None:
         complexity = max([term.complexity for term in equation.terms])
-    if complexity >= max_complexity:
+    if complexity > max_complexity:
         return
+    #print('eq:', equation, 'primes:', primes, 'max_c:', max_complexity, 'c:', complexity)
+    # do all of the contractions in one step so we don't have different permutations of contraction & index creation 
     yield from get_all_contractions(equation)
-    rem_complexity = max_complexity - complexity
+
+    #if complexity == max_complexity:
+    #    return
+    
     eq_dt = dt(equation)#.canonicalize() # I don't think canonicalization is necessary here
-    eq_dx = dx(equation).canonicalize()
+    eq_dx = dx(equation)#.canonicalize()
+    #print('eq_dt', eq_dt, 'eq_dx', eq_dx)
     yield from infer_equations(eq_dt, primes, max_complexity, complexity=complexity+1)
     yield from infer_equations(eq_dx, primes, max_complexity, complexity=complexity+1)
+
+    rem_complexity = max_complexity - complexity
     for prime in primes:
-        #if prime.complexity <= rem_complexity:
         # multiplication canonicalizes
+        # if prime.complexity <= rem_complexity:
+        #    print('prime', prime)
+        #    print('prime*eq', prime * equation, 'new_comp', complexity+prime.complexity)
         yield from infer_equations(prime * equation, primes, max_complexity, complexity=complexity+prime.complexity) 
+
+def get_all_contractions(equation):
+    #print('Equation', equation)
+    #print("Canonicalized:", canonicalize(equation))
+    yield canonicalize(equation) # base case
+    for i in range(equation.rank):
+        for j in range(i+1, equation.rank):
+            #print('Contracting', i, j)
+            yield from get_all_contractions(contract(equation, i, j))
 
 def form_equation(lhs, rhs):
     if rhs is None:
-        return Equation(terms=lhs, coeffs=(1,))
+        return Equation(terms=(lhs,), coeffs=(1,))
     else:
-        return Equation(terms=lhs, coeffs=(1,)*len(lhs)) + (-1) * rhs
-
-def get_all_contractions(equation):
-    yield canonicalize(equation) # base case
-    for i in range(equation.rank):
-        for j in range(start=i+1, stop=equation.rank):
-            yield from get_all_contractions(contract(equation, i, j))
+        return Equation(terms=(lhs,)+rhs.terms, coeffs=(1,) + tuple([-c for c in rhs.coeffs]))
 
 def get_primes(library, max_complexity):
     all_primes = set(prime.purge_indices() for term in library 
