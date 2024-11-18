@@ -19,7 +19,7 @@ def valid_prime_lists(observables: Iterable[Observable],
                         max_order: DerivativeOrder | INF = INF(),
                         zeroidx: int = 0) -> Generator[Union[LibraryTerm, ConstantTerm], None, None]:
     """
-    Instatiates a Generator that will yield all LibraryTerms using the inputs.
+    Instantiates a Generator that will yield all LibraryTerms using the inputs.
     NOTE: For exclusive use of generate_terms_to.
 
     :param observables: List of Observable object to generate tensors from.
@@ -53,7 +53,7 @@ def valid_prime_lists(observables: Iterable[Observable],
                 new_orders = list(obs_orders)
                 new_orders[zeroidx] -= 1
                 if obs_orders[zeroidx] == 1:  # reset max_order since we are going to next observable
-                    max_order = INF()
+                    do = INF()
                 #for term2 in raw_library_tensors(observables, new_orders, nt - i, nx - j, rank, do, zeroidx):
                 for prim2 in valid_prime_lists(observables, new_orders, nt - i, nx - j, do, zeroidx):
                     yield prim2 + (prim,) 
@@ -106,8 +106,8 @@ def generate_terms_to(order: int,
                     term = LibraryTerm(primes=prime_list, rank=rank)
                     #print("term:", term, "rank:", rank)
                     for labeled in generate_indexings(term):
-                        #canon = labeled.canonicalize()
-                        #libterms.append(canon)
                         #print(labeled)
-                        libterms.append(labeled) # terms should already be in canonical form
+                        # terms should already be in canonical form except eq_canon
+                        libterms.append(labeled.eq_canon()[0])
+                        #print(labeled, '->', libterms[-1])
     return libterms

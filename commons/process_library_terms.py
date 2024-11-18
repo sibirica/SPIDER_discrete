@@ -581,6 +581,7 @@ class AbstractDataset(object): # template for structure of all data associated w
         self.find_scales()
         for irrep in self.irreps:
             self.libs[irrep].col_weights = [self.get_char_size(term) for term in self.libs[irrep].terms]
+            #print('Irrep', irrep, '; weights', self.libs[irrep].col_weights)
         #self.find_row_weights()
 
     def find_scales(self, names=None): # find mean/std deviation of fields in data_dict that are in names
@@ -589,8 +590,9 @@ class AbstractDataset(object): # template for structure of all data associated w
     def get_char_size(self, term): # get characteristic size of LibraryTerm 
         pass
 
-    def set_LT_scale(self, L, T): # compute correlation length/time
-        pass
+    def set_LT_scale(self, L, T): # set correlation length/time -> implement another automatic function?
+        self.xscale = L
+        self.tscale = T
 
 def get_slice(arr, domain):
     arr_slice = arr

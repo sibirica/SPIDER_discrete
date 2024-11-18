@@ -84,4 +84,5 @@ class SRDataset(AbstractDataset):
                 product *= self.scale_dict[name]['mean']
             product /= self.xscale ** xorder
             product /= self.tscale ** torder
+        #print(f'char size of {term} is {product}')
         return product if product > 0 else 1 # if the variable is always 0 then we'll get division by zero

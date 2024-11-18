@@ -49,7 +49,9 @@ class Scaler(object): # pre- and postprocessing by scaling/nondimensionalizing d
         
     def postprocess_multi_term(self, xi, lambd, norm, verbose=False): # Xi postprocessing
         full_xi = np.zeros(shape=(self.full_w,))
+        #print('old xi', xi)
         xi = xi / self.char_sizes  # renormalize by char. size
+        #print('new xi', xi)
         if -min(xi) > max(xi):  # ensure vectors are "positive"
             xi = -xi
         xi = xi / max(xi)  # make largest coeff 1
@@ -371,6 +373,8 @@ def sparse_reg_bf(theta, scaler, initializer, residual, model_iterator, threshol
     initializer = copy.copy(initializer)
     model_iterator = copy.copy(model_iterator)
 
+    #verbose = False # to suppress output only from here
+
     # set relative residual normalization (if not dominant balance residual)
     np.set_printoptions(precision=3)
     if residual.residual_type == "fixed_column":
@@ -475,7 +479,9 @@ def sparse_reg_bf(theta, scaler, initializer, residual, model_iterator, threshol
     xi, lambd = xis[ind, :], lambdas[ind]
     
     ### POSTPROCESSING
+    #print('xi before rescaling:', xi)
     xi, lambd = scaler.postprocess_multi_term(xi, lambd, residual.norm, verbose)
+    #print('xi after rescaling:', xi)
     best_term, lambda1 = scaler.postprocess_single_term(best_term, lambda1, residual.norm, verbose)
     
     # Reset max_k

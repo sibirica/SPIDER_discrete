@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from functools import lru_cache
+#from functools import lru_cache
 from typing import Any, Protocol, Union, assert_type
 from abc import abstractmethod, ABC
 from collections import defaultdict
@@ -39,7 +39,6 @@ Irrep = Antisymmetric | SymmetricTraceFree | FullRank
 
 @dataclass(frozen=True)
 class IndexHole:
-    #id: int = field(default_factory=lambda counter=count(): next(counter))
     def __lt__(self, other):
         if isinstance(other, IndexHole): #or isinstance(other, VarIndex):
             return False
@@ -182,7 +181,7 @@ class EinSumExpr[T](ABC):
         """ Implementation returns list of own indices """
         ...
 
-    @lru_cache(maxsize=10000)
+    #@lru_cache(maxsize=10000)
     def all_indices(self) -> list[T]: # make sure these are in depth-first/left-to-right order
         """ List all indices """
         return list(self.own_indices()) + [idx for expr in self.sub_exprs() for idx in expr.all_indices()]
@@ -211,7 +210,9 @@ class EinSumExpr[T](ABC):
         def mapper(expr):
             nonlocal index_map
             return expr.map(expr_map=mapper, index_map=index_map)
-        return mapper(self)
+        ms = mapper(self)
+        src_check = lambda x: x.src if hasattr(x, 'src') else None
+        return ms
 
     def purge_indices(self): # return a copy with only IndexHoles
         return self.map_all_indices(index_map=lambda idx: IndexHole())
@@ -239,10 +240,14 @@ class EinSumExpr[T](ABC):
         updated = self.map(expr_map=emap, index_map=imap)
         #print(id(idx_cache), list(idx_cache.items()))
 
+        new_constraints = []
         if self.can_commute_indices:
             # constraint on own_indices
-            for i, i_next in zip(updated.own_indices(), updated.own_indices()[1:]):
-                constraints.append(i.var <= i_next.var)
+            #own_indices = sorted(list(updated.own_indices()))
+            own_indices = list(updated.own_indices())
+            for i, i_next in zip(own_indices, own_indices[1:]):
+                if i.src is None: # only add constraint if the first index in the pair isn't already constrained
+                    new_constraints.append(i.var <= i_next.var)
         if self.can_commute_exprs:
             duplicates = defaultdict(list)
             for e, e_new in zip(self.sub_exprs(), updated.sub_exprs()):
@@ -250,15 +255,18 @@ class EinSumExpr[T](ABC):
                 duplicates[e].append(e_new)
             for dup_list in duplicates.values():
                 for e, e_next in zip(dup_list, dup_list[1:]):
-                    constraints.append(lexico_le(e.all_indices(), e_next.all_indices()))
+                    new_constraints.append(lexico_le(e.all_indices(), e_next.all_indices()))
             #print(duplicates)
 
+        #print(">>", updated, list(updated.own_indices()), new_constraints)
+        constraints += new_constraints
         return updated, constraints
 
 def generate_indexings(expr: EinSumExpr[IndexHole | VarIndex]) -> Iterable[EinSumExpr[VarIndex]]:
     indexed_expr, constraints = expr.canonical_indexing_problem() # includes lexicographic constraints
     assert_type(indexed_expr, EinSumExpr[SMTIndex])
     #print(indexed_expr)
+    #print(constraints)
     # add global constraints
     indices = indexed_expr.all_indices()
     n_single_inds = expr.rank
@@ -299,6 +307,7 @@ def generate_indexings(expr: EinSumExpr[IndexHole | VarIndex]) -> Iterable[EinSu
         solver.add(z3.Or(*[idx.var != val for idx, val in indexing.items()]))
     if result == z3.unknown:
         raise RuntimeError("Could not solve SMT problem :(")
+    #print(solver.to_smt2())
 
 def lexico_le(idsA: list[SMTIndex], idsB: list[SMTIndex]) -> z3.ExprRef:
     lt = True

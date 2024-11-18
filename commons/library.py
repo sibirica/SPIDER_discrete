@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field, replace, KW_ONLY
 from typing import List, Dict, Union, Tuple, Iterable, Generator
 from itertools import permutations
-from functools import cached_property, lru_cache#, reduce 
+from functools import cached_property#, lru_cache#, reduce 
 from operator import add
 from collections import defaultdict, Counter
 
@@ -12,7 +12,6 @@ import unicodedata
 
 import numpy as np
 from numpy import prod
-from typing import Union
 
 from commons.z3base import *
 
@@ -74,32 +73,36 @@ def canonicalize(expr: EinSumExpr[Index] | Equation):
         canon2 = next(indexings)
         #for additional in indexings:
         #    print(additional)
-        assert False, f"Found multiple canonical indexings: {canon} and {canon2}"
+        assert False, f"Found multiple canonical indexings for {expr} with rank {expr.rank}: {canon} and {canon2}"
     except StopIteration:
         pass
     return canon.eq_canon()[0] # canonicalize structure too
 
 def dt(expr: EinSumExpr[VarIndex]):
+    if isinstance(expr, ConstantTerm):
+        return LibraryTerm(primes=(), rank=0)
+    dted = dt_helper(expr)
+    return canonicalize(dted) # make sure it's canonicalized
+
+def dt_helper(expr: EinSumExpr[VarIndex]):
     match expr:
         case Observable():
             return LibraryPrime(derivative=DerivativeOrder.indexed_derivative(1, 0), derivand=expr)
         case DerivativeOrder(torder=to, x_derivatives=xd):
             return DerivativeOrder(torder=to+1, x_derivatives=xd)
         case LibraryPrime(derivative=derivative):
-            return replace(expr, derivative=dt(derivative))
+            return replace(expr, derivative=dt_helper(derivative))
         case LibraryTerm():
             subexs = list(expr.sub_exprs())
-            def dts(subexs):
-                return (ES_prod(*subexs[:i], dt(term), *subexs[i+1:])
-                       for i, term in enumerate(subexs))
-            return ES_sum(*dts(subexs))
+            # don't canonicalize since we're not in an equation context
+            dts = [ES_safe_prod(*subexs[:i], dt_helper(term), *subexs[i+1:]) 
+                       for i, term in enumerate(subexs)]
+            return dts[0] if len(dts)==1 else ES_sum(*dts)
         case Equation(terms=terms, coeffs=coeffs):
-        # note that derivative is an Equation object in general
-            components = tuple([coeff * dt(term) for term, coeff in zip(terms, coeffs)
+            # note that derivative is an Equation object in general
+            components = tuple([coeff * dt_helper(term) for term, coeff in zip(terms, coeffs)
                           if not isinstance(term, ConstantTerm)])
-            #if not components:
-            #    return Equation((), ()) #None - might need an is_empty for Equation?
-            return ES_sum(*components)#.canonicalize()
+            return ES_sum(*components)
 
 # construct term or equation by taking x derivative with respect to new i index, shifting others up by 1
 # NOT GUARANTEED TO BE CANONICAL
@@ -127,7 +130,9 @@ def dx(expr: EinSumExpr[VarIndex]):
     #         return replace(dxed, rank=expr.rank+1)
     #     case _:
     #         return dxed
-    return dx_helper(expr)
+    dxed = dx_helper(expr)
+    #print(f'dx({expr})={dxed}')
+    return canonicalize(dxed) # make sure it's canonicalized
     #return dxed
 
 # take x derivative without worrying about indices
@@ -143,14 +148,18 @@ def dx_helper(expr: EinSumExpr[VarIndex]):
             return replace(expr, derivative=dx_helper(d))
         case LibraryTerm():
             subexs = list(expr.sub_exprs())
-            # don't forget to increment rank by 1 for derivative
-            dxs = [replace(ES_prod(*subexs[:i], dx_helper(term), *subexs[i+1:]), rank=expr.rank+1) 
+            # don't forget to increment rank by 1 for derivative & don't canonicalize yet - not eqn context
+            dxs = [replace(ES_safe_prod(*subexs[:i], dx_helper(term), *subexs[i+1:]), rank=expr.rank+1) 
                        for i, term in enumerate(subexs)]
             #return ES_sum(*dxs) # return LibraryTerm if it's just one term in the sum
+            dxs = list(dxs)
+            #print("trm >>", expr, dxs)
             return dxs[0] if len(dxs)==1 else ES_sum(*dxs) # return LibraryTerm if it's just one term in the sum
         case Equation():
             components = (coeff * dx_helper(term) for term, coeff in zip(expr.terms, expr.coeffs)
                           if not isinstance(term, ConstantTerm))
+            components = list(components)
+            #print("eqn >>", expr, components)
             return ES_sum(*components)#.canonicalize() # note that rank is already incremented from the term being handled
 
 # contract term or equation along i and j indices, setting j to i (if i<j) and moving others down by 1
@@ -201,13 +210,13 @@ def cast_to_term(x: ConstantTerm | LibraryPrime | LibraryTerm):
 #     else:
 #         return x
     
-# helper function for prime/library term multiplication - OUTPUT IS CANONICAL
+# helper function for prime/library term multiplication w/ index collision resolution - OUTPUT IS CANONICAL
 def ES_prod(*terms: ConstantTerm | LibraryPrime | LibraryTerm):
     #print("Product of terms:", terms)
     product_rank = 0
     combined_primes = []
     shift = 0
-    literal = False
+    #literal = False
     for t in terms:
         t = cast_to_term(t)
         product_rank += t.rank
@@ -221,17 +230,31 @@ def ES_prod(*terms: ConstantTerm | LibraryPrime | LibraryTerm):
     #print(combined_primes)
     product = LibraryTerm(primes=combined_primes, rank=product_rank)
     #print("PRECANONICAL", product)
+    #if canon:
     return canonicalize(product) 
+    #else:
+    #    return product
+
+# multiplication without index collision resolution or canonicalization - used in derivatives only
+def ES_safe_prod(*terms: ConstantTerm | LibraryPrime | LibraryTerm):
+    combined_primes = []
+    for t in terms:
+        t = cast_to_term(t)
+        combined_primes += t.primes
+    combined_primes = tuple(sorted(combined_primes))
+    product_wo_rank = LibraryTerm(primes=combined_primes, rank=0)
+    product = replace(product_wo_rank, rank=index_rank(product_wo_rank.all_indices()))
+    return product
 
 # helper function for prime/library term addition - OUTPUT IS CANONICAL
 def ES_sum(*equations: LibraryTerm | Equation):
-    #print(equations)
     #equations = [cast_to_equation(eq) for eq in equations]
     equations = list(equations)
+    #print("Summing up:", equations)
     terms = tuple((term for eq in equations for term in (eq.terms if isinstance(eq, Equation) else (eq,))))
     coeffs = tuple((coeff for eq in equations for coeff in (eq.coeffs if isinstance(eq, Equation) else (1,))))
     #print(terms)
-    return Equation(terms=terms, coeffs=coeffs)
+    return Equation(terms=terms, coeffs=coeffs)#.canonicalize()
 
 # create a copy of the prime with a new set of derivative orders
 def set_order_counts(p: Prime, counts: Counter[int]) -> Prime:
@@ -504,11 +527,16 @@ class LibraryPrime[T, Derivand](EinSumExpr):
         other_orders = (other.derivative.torder, other.derivative.xorder)
         if self_orders != other_orders:
             return self_orders < other_orders
-        self_indices = self.derivand.all_indices() 
-        other_indices = other.derivand.all_indices()
-        if self_indices != other_indices:
-            return self_indices < other_indices
-        return self.derivative.x_derivatives < other.derivative.x_derivatives
+        # self_indices = self.derivand.all_indices() 
+        # other_indices = other.derivand.all_indices()
+        # if self_indices != other_indices:
+        #     return self_indices < other_indices
+        # return self.derivative.x_derivatives < other.derivative.x_derivatives
+        self_derivs = self.derivative.x_derivatives  
+        other_derivs = other.derivative.x_derivatives
+        if self_derivs != other_derivs:
+            return self_derivs < other_derivs
+        return self.derivand.all_indices() < other.derivand.all_indices()
 
     def __repr__(self):
         string1 = repr(self.derivative)
@@ -588,7 +616,7 @@ class LibraryTerm[T, Derivand](EinSumExpr):
     def complexity(self):
         return sum((prime.complexity) for prime in self.primes)
 
-    @lru_cache
+    #@lru_cache
     def symmetry(self, free_ind1=0, free_ind2=1) -> Optional[Int]:
         def transpose(ind):
             if ind.value == free_ind1:
@@ -681,17 +709,18 @@ class Equation[T, Derivand]:  # can represent equation (expression = 0) OR expre
         #print("EQ_TERMS", self.terms)
         self.coeffs = tuple(coeffs_dict[term] for term in self.terms)
         self.rank = terms[0].rank if terms else 0
+        #print("rank", self.rank)
         self.complexity = sum([term.complexity for term in terms])  # another choice is simply the number of terms
-        self.canonicalize()
+        #self.canonicalize() # too risky to canonicalize in constructor, do it manually
 
     def __add__(self, other):
-        return ES_sum(self, other)
+        return ES_sum(self, other).canonicalize()
         #raise TypeError(f"Second argument {other}) is not an equation.")
 
     def __mul__(self, other):
         if isinstance(other, EinSumExpr): # multiplication by term or castable to term
-            # note: need to canonicalize term * other
-            return Equation([ES_prod(term, other) for term in self.terms], self.coeffs)
+            # note: need to canonicalize term * other and as well as the end
+            return Equation([ES_prod(term, other) for term in self.terms], self.coeffs).canonicalize()
         else:  # multiplication by number
             return Equation(self.terms, [c * other for c in self.coeffs])
 
@@ -717,11 +746,21 @@ class Equation[T, Derivand]:  # can represent equation (expression = 0) OR expre
         return self.terms == other.terms and self.coeffs == other.coeffs
 
     def canonicalize(self):
+        #print("start of equation canonicalization:", self)
+        dx_hole = VarIndex(-1, src=VarIndex(-1)) # for tracking sources in the one hole per term case (dx)
         coeffs = defaultdict(int)
+        def update_source(idx):
+            new_idx = replace(idx, src=idx) if not isinstance(idx, IndexHole) else dx_hole
+            #print('idx', idx, 'src', idx.src if not isinstance(idx, IndexHole) else None, 
+            #      'new_idx', new_idx, 'new_src', new_idx.src)
+            return new_idx
         for term, coeff in zip(self.terms, self.coeffs):
-            term = term.map_all_indices(lambda idx: replace(idx, src=idx)) # set the source of index as itself
-            coeffs[term] += coeff        
-        
+            #term = term.map_all_indices( # set the source of index as itself
+            #    lambda idx: (replace(idx, src=idx) if not isinstance(idx, IndexHole) else dx_hole))
+            term = term.map_all_indices(update_source)
+            coeffs[term] += coeff
+            #print('term at start:', term)
+            #print('indices', term.all_indices(), 'srcs', [idx.src for idx in term.all_indices()])
         # canonicalize terms, removing those with 0 coefficient
         # MIGHT BE EQ_CANON?
         coeffs = {canonicalize(term): coeff
@@ -730,7 +769,9 @@ class Equation[T, Derivand]:  # can represent equation (expression = 0) OR expre
         if not coeffs:
             self.terms, self.coeffs = (), ()
             return
-            
+
+        #print('new terms after first canonicalization:', coeffs.keys())
+
         # get minimum term for standardizing free indices,
         # e.g. dx(a_\alpha * b) = d\alpha a_\beta * b + a_\beta * d\alpha b
         first : LibraryTerm = min(coeffs.keys())

@@ -103,7 +103,8 @@ def generate_terms_to(order: int,
             for labeled in generate_indexings(term):
                 #canon = labeled.canonicalize()
                 #libterms.append(canon)
-                libterms.append(labeled) # terms should already be in canonical form  
+                # terms should already be in canonical form except eq_canon
+                libterms.append(labeled.eq_canon()[0]) 
     return libterms
 
 def valid_prime_lists(primes: List[LibraryPrime],

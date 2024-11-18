@@ -7,7 +7,7 @@ from library import *
 from commons.sparse_reg import *
 from commons.sparse_reg_bf import *
     
-def identify_equations(Q, reg_opts, library, print_opts=None, threshold=1e-5, min_complexity=1, # ranks=None,
+def identify_equations(lib_object, reg_opts, print_opts=None, threshold=1e-5, min_complexity=1, # ranks=None,
                        max_complexity=None, max_equations=999, timed=True, experimental=True,
                        excluded_terms=None, primes=None):
     if timed:
@@ -15,6 +15,10 @@ def identify_equations(Q, reg_opts, library, print_opts=None, threshold=1e-5, mi
     equations = []
     lambdas = []
     derived_eqns = {}
+
+    library = lib_object.terms
+    Q = lib_object.Q
+    
     #if ranks is None:
     #    ranks = (0, 1, 2)
     if print_opts is None:
@@ -39,12 +43,19 @@ def identify_equations(Q, reg_opts, library, print_opts=None, threshold=1e-5, mi
             
             #print('Sublibrary:', sublibrary, 'inds:', inds)
             #print('Excluded terms:', excluded_terms, [hash(t.primes[0].derivand) for t in excluded_terms])
-            #for term in sublibrary:
-            #    print(f"{term} with p0_hash {hash(term.primes[0].derivand)} in {excluded_terms}? {term in excluded_terms}")
+            # strings = [repr(et) for et in excluded_terms]
+            # soi = '∂γ u_α · ∂β u_γ'
+            # for et in excluded_terms:
+            #     if repr(et)==soi:
+            #         print('We are excluding', et, 'with hash', hash(et), 'and x_derivatives',
+            #                et.primes[0].derivative.x_derivatives)
+            # for term in sublibrary:
+            #     print(f"{term} with hash {hash(term)} is in the sublibrary")# and x_derivatives {term.primes[0].derivative.x_derivatives} is in the sublibrary")
             
             # identify model
             if experimental:
                 # only difference in bf regression conventions is that Xi corresponds to full library
+                #print(reg_opts['scaler'], '; sub_inds:', inds, '; full_cs:', reg_opts['scaler'].full_cs)
                 reg_opts['scaler'].reset_inds(inds)
                 #print(reg_opts)
                 eq, res = make_equation_from_Xi(*sparse_reg_bf(Q, **reg_opts), library)
@@ -66,10 +77,11 @@ def identify_equations(Q, reg_opts, library, print_opts=None, threshold=1e-5, mi
             # eliminate terms via infer_equations
             derived_eqns[str(eq)] = []
             for new_eq in infer_equations(eq, primes, lib_max_complexity):
+                #print("NEW_EQ:", new_eq)
                 lhs, rhs = new_eq.eliminate_complex_term()
-                if 'verbose' in reg_opts.keys() and reg_opts['verbose']:
-                    print("Inferred equation:", new_eq)
-                    print("Excluded term:", lhs)
+                #if 'verbose' in reg_opts.keys() and reg_opts['verbose']:
+                #    print("Inferred equation:", new_eq)
+                #    print("Excluded term:", lhs)
                 excluded_terms.add(lhs)
                 #for t in excluded_terms:
                 #    print(f"{lhs} =? {t}:", lhs==t)
@@ -78,7 +90,7 @@ def identify_equations(Q, reg_opts, library, print_opts=None, threshold=1e-5, mi
                 derived_eqns[str(eq)].append(form_equation(lhs, rhs))
     return equations, lambdas, derived_eqns, excluded_terms
 
-def interleave_identify(Qs, reg_opts_list, libraries, print_opts=None, threshold=1e-5, min_complexity=1,  # ranks = None
+def interleave_identify(lib_objects, reg_opts_list, print_opts=None, threshold=1e-5, min_complexity=1,  # ranks = None
                         max_complexity=None, max_equations=999, timed=True, experimental=True,
                         excluded_terms=None):
     equations = []
@@ -86,6 +98,8 @@ def interleave_identify(Qs, reg_opts_list, libraries, print_opts=None, threshold
     derived_eqns = {}
     #if ranks is None:
     #    ranks = (0, 1, 2)
+    libraries = [lib_object.terms for lib_object in lib_objects]
+    
     if excluded_terms is None:
         excluded_terms = set()
     if max_complexity is None:
@@ -93,8 +107,11 @@ def interleave_identify(Qs, reg_opts_list, libraries, print_opts=None, threshold
     concat_libs = reduce(add, libraries, [])
     primes = get_primes(concat_libs, max_complexity)
     for complexity in range(min_complexity, max_complexity + 1):
-        for Q, reg_opts, library in zip(Qs, reg_opts_list, libraries):
-            eqs_i, lbds_i, der_eqns_i, exc_terms_i = identify_equations(Q, reg_opts, library,
+        for lib_object, reg_opts in zip(lib_objects, reg_opts_list):
+            #if 'verbose' in reg_opts.keys() and reg_opts['verbose']:
+            print("--- WORKING ON LIBRARY WITH IRREP", lib_object.irrep, "AT COMPLEXITY", complexity, '---')
+            #print("Symmetry:", translate_symmetry(library[0].symmetry()))
+            eqs_i, lbds_i, der_eqns_i, exc_terms_i = identify_equations(lib_object, reg_opts,
                                                                         threshold=threshold,
                                                                         min_complexity=complexity,
                                                                         max_complexity=complexity,
@@ -113,39 +130,40 @@ def make_equation_from_Xi(Xi, lambd, best_term, lambda1, sublibrary):
         return Equation(terms=(sublibrary[best_term],), coeffs=(1,)), lambda1
     else:
         zipped = [(sublibrary[i], c) for i, c in enumerate(Xi) if c != 0]
-        return Equation(terms=[e[0] for e in zipped], coeffs=[e[1] for e in zipped]), lambd
+        return Equation(terms=[e[0] for e in zipped], coeffs=[e[1] for e in zipped]).canonicalize(), lambd
 
 def infer_equations(equation, primes, max_complexity, complexity=None):
-    #yield equation
     if complexity is None:
         complexity = max([term.complexity for term in equation.terms])
     if complexity > max_complexity:
         return
-    #print('eq:', equation, 'primes:', primes, 'max_c:', max_complexity, 'c:', complexity)
+    #print('eq:', equation, 'rank:', equation.rank, 'primes:', primes, 'max_c:', max_complexity, 'c:', complexity)
     # do all of the contractions in one step so we don't have different permutations of contraction & index creation 
     yield from get_all_contractions(equation)
 
-    #if complexity == max_complexity:
-    #    return
-    
+    if complexity == max_complexity:
+        return
+    #print('eq_dt & eq_dx:')
     eq_dt = dt(equation)#.canonicalize() # I don't think canonicalization is necessary here
     eq_dx = dx(equation)#.canonicalize()
-    #print('eq_dt', eq_dt, 'eq_dx', eq_dx)
+    #print(eq_dt, '&', eq_dx)
     yield from infer_equations(eq_dt, primes, max_complexity, complexity=complexity+1)
     yield from infer_equations(eq_dx, primes, max_complexity, complexity=complexity+1)
 
     rem_complexity = max_complexity - complexity
     for prime in primes:
-        # multiplication canonicalizes
-        # if prime.complexity <= rem_complexity:
-        #    print('prime', prime)
-        #    print('prime*eq', prime * equation, 'new_comp', complexity+prime.complexity)
-        yield from infer_equations(prime * equation, primes, max_complexity, complexity=complexity+prime.complexity) 
+        # RESTORE
+        if prime.complexity <= rem_complexity:
+            #print('prime', prime)
+            #print('prime*eq', prime * equation, 'new_comp', complexity+prime.complexity)
+            yield from infer_equations(prime * equation, primes, max_complexity,
+                                   complexity=complexity+prime.complexity) 
 
 def get_all_contractions(equation):
     #print('Equation', equation)
-    #print("Canonicalized:", canonicalize(equation))
-    yield canonicalize(equation) # base case
+    ce = canonicalize(equation)
+    #print("Canonicalized:", ce)
+    yield ce # base case
     for i in range(equation.rank):
         for j in range(i+1, equation.rank):
             #print('Contracting', i, j)
@@ -155,9 +173,20 @@ def form_equation(lhs, rhs):
     if rhs is None:
         return Equation(terms=(lhs,), coeffs=(1,))
     else:
-        return Equation(terms=(lhs,)+rhs.terms, coeffs=(1,) + tuple([-c for c in rhs.coeffs]))
+        return Equation(terms=(lhs,)+rhs.terms, coeffs=(1,) + tuple([-c for c in rhs.coeffs])).canonicalize()
 
 def get_primes(library, max_complexity):
     all_primes = set(prime.purge_indices() for term in library 
                      for prime in term.primes if prime.complexity<=max_complexity)
     return all_primes
+
+# def translate_symmetry(symmetry):
+#     match symmetry:
+#         case 1:
+#             return "STF"
+#         case -1:
+#             return "antisymmetric"
+#         case None:
+#             return "none"
+#         case _:
+#             return "?"
