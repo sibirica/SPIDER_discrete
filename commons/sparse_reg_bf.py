@@ -94,7 +94,8 @@ class Initializer(object): # selecting initial guess
             w = theta.shape[1]
             inds = list(range(w))
             best_lambd = np.inf
-            for combo in combinations(inds, self.start_k): # return all combinations of start_k terms
+            combos = combinations(inds, self.start_k) if self.start_k<len(inds) else (inds,)
+            for combo in combos: # return all combinations of start_k terms
                 if self.inhomog and self.inhomog_col not in combo:
                     continue
                 xi_try = solve(theta, combo, self.inhomog_col)
@@ -491,7 +492,7 @@ def sparse_reg_bf(theta, scaler, initializer, residual, model_iterator, threshol
 
 # evaluate specific model on Q 
 # NOTE: use scaler with same column subsampling as any models being compared with & make sure model_vector sparsity matches it
-def evaluate_modeL(theta, model_vector, scaler, residual, verbose=False):
+def evaluate_model(theta, model_vector, scaler, residual, verbose=False):
     np.set_printoptions(precision=3)
     if residual.residual_type == "fixed_column":
         residual.set_norm(scaler.norm_col(theta, residual.anchor_col))

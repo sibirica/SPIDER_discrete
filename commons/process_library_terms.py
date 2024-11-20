@@ -65,15 +65,15 @@ class Weight(object): # scalar-valued Legendre polynomial weight function (may r
     def increment(self, dim):  # return new weight with an extra derivative on the dim-th dimension
         knew = self.k.copy()
         knew[dim] += 1
-        return replace(self, k=knew)
+        return replace(self, k=knew, ready=False)
         #return Weight(self.m, self.q, knew, scale=self.scale, dxs=self.dxs)
 
     def __neg__(self):
-        return replace(self, scale=-self.scale)
+        return replace(self, scale=-self.scale, ready=False)
         #return Weight(self.m, self.q, self.k, scale=-self.scale, dxs=self.dxs)
 
     def __mul__(self, number):
-        return replace(self, scale=self.scale*number)
+        return replace(self, scale=self.scale*number, ready=False)
         #return Weight(self.m, self.q, self.k, scale=self.scale * number, dxs=self.dxs)
 
     __rmul__ = __mul__
@@ -381,7 +381,7 @@ class AbstractDataset(object): # template for structure of all data associated w
     #         else:
     #             yield indexed_term, base_weight
 
-    def get_index_assignments(self, term, tensor_weight, debug=True): # ONLY IMPLEMENTING FOR SIMPLER IDENTITY METRIC CASE
+    def get_index_assignments(self, term, tensor_weight, debug=False): # ONLY IMPLEMENTING FOR SIMPLER IDENTITY METRIC CASE
         n_spatial_dims = self.n_dimensions-1
         if self.metric_is_identity: # simplest evaluation - just sum over all assignments
             n_indices_to_assign = highest_index(term.all_indices())+1 if term.all_indices() else 0
@@ -396,9 +396,9 @@ class AbstractDataset(object): # template for structure of all data associated w
                     print("Index assignment:", assignment)
                 assigned_term = term.map_all_indices(index_map=lambda idx:LiteralIndex(assignment[idx.value])) if assignment else term
                 scalar_weight = tensor_weight[*tuple(assignment)[:term.rank]] #if assignment else scalar_weight
-                if debug:
-                    print("Indexed term:", assigned_term)
-                    print("Indexed weight:", scalar_weight)
+                # if debug:
+                #     print("Indexed term:", assigned_term)
+                #     print("Indexed weight:", scalar_weight)
                 yield assigned_term, scalar_weight
                 #total += self.eval_term(assigned_term, domain, debug) * scalar_weight.get_weight_array(domain.shape)
         else:
@@ -438,8 +438,11 @@ class AbstractDataset(object): # template for structure of all data associated w
         #         for assignment_2 in lists_for_N(term.rank, n_spatial_dims-1):
         #             total += w_values[free_assignment] * td_values[assignment_2] * \
         #             self.metric_effect(free_assignment, assignment_2)
-
-        return int_arr(self.eval_term(term, domain, debug) * weight.get_weight_array(domain.shape), dxs=self.dxs)
+        
+        #print('weight_array hash', hash(weight.get_weight_array(domain.shape).tostring()))
+        result = int_arr(self.eval_term(term, domain, debug) * weight.get_weight_array(domain.shape), dxs=self.dxs)
+        #print('result', result)
+        return result
 
     # to be used in non-identity metric case
     def metric_effect(self, inds1, inds2):
@@ -465,6 +468,7 @@ class AbstractDataset(object): # template for structure of all data associated w
             else:
                 data_slice = self.eval_prime(prime, domain)
                 self.field_dict[prime, domain] = data_slice
+            #print(product.shape, data_slice.shape)
             product *= data_slice
             # print(product[0, 0, 0])
         return product
@@ -480,11 +484,11 @@ class AbstractDataset(object): # template for structure of all data associated w
     #         return np.einsum('ij..., jk, ik...->...', term_values, self.metric, weight_values, optimize=True)
 
     # not sure if it'll explicitly get used
-    def shortcut_trace(self, product_values, tensor_weight): # evaluate inner product with factorizable TensorWeight
-        if self.metric_is_identity:
-            return np.einsum('ij..., ij->...', product_values, tensor_weight, optimize=True)
-        else:
-            return np.einsum('ij..., jk, ik->...', product_values, self.metric, tensor_weight, optimize=True)
+    # def shortcut_trace(self, product_values, tensor_weight): # evaluate inner product with factorizable TensorWeight
+    #     if self.metric_is_identity:
+    #         return np.einsum('ij..., ij->...', product_values, tensor_weight, optimize=True)
+    #     else:
+    #         return np.einsum('ij..., jk, ik->...', product_values, self.metric, tensor_weight, optimize=True)
     
     # def tuple_iterator(self, irrep): # make iterator over tuples (term, tensor_weight, domain) for a given irrep    
     #     for domain in domains:
@@ -494,6 +498,7 @@ class AbstractDataset(object): # template for structure of all data associated w
     #                     yield (term, tensor_weight, domain)
 
     def make_Q(self, irrep, by_parts=True, debug=False): # compute Q matrix for given irrep
+        #debug = True
         #for tensor(term, tensor_weight, domain) in self.tuple_iterator(irrep):
         cols_list = []
         #n_spatial_dims = self.n_dimensions-1
@@ -518,7 +523,7 @@ class AbstractDataset(object): # template for structure of all data associated w
                     # compute weight(term) on each domain: w(t)|d = sum_(wi'(ti'))|d
                     for indexed_term, scalar_weight in self.get_index_assignments(term, tensor_weight, debug):
                         if debug:
-                            print("Indexed weight:", indexed_term)
+                            print("Indexed term:", indexed_term)
                             print("Scalar weight:", scalar_weight)
                         for t, w in int_by_parts(indexed_term, scalar_weight):
                             if debug:
@@ -538,8 +543,11 @@ class AbstractDataset(object): # template for structure of all data associated w
                                            #for t, w in term_weight_pairs])
                                 
                                 wd_dict[weight, domain] += self.eval_on_domain(t, w, domain, debug=debug)
+                                #if domain==self.domains[0] and weight==self.weights[0]:
+                                #    print('I_TERM', t, 'I_WEIGHT', w, 'CURR RESULT', wd_dict[weight, domain])
                                 #if debug:
                                 #    print("weight/term/domain evaluation (current):", wd_dict[weight, domain])
+                                
 
                         ##column.append(wtd)
                     
@@ -569,8 +577,12 @@ class AbstractDataset(object): # template for structure of all data associated w
                     #     column.append(int_arr(arr, self.dxs)) # integrate the product array
             for weight in self.weights:
                 for domain in self.domains:
+                    #if domain==self.domains[0] and weight==self.weights[0]:
+                    #    print('term', term, 'weight', [weight.q, weight.k], 'domain', domain, 'result',
+                    #           wd_dict[weight, domain])
                     column.append(wd_dict[weight, domain])
             cols_list.append(column)
+            #print('CL starts:', [float(col[0]) for col in cols_list])
         return np.array(cols_list).transpose() # convert to numpy array
         
     def make_library_matrices(self, by_parts=True, debug=False): # compute LibraryData Q matrices
@@ -671,6 +683,7 @@ def int_by_parts_dim(term, weight, dim, debug=False):
     if debug:
         print("TERM", term, "best_prime", best_prime)
         print("antidiffs to", new_prime)
+        print("weight:", weight, '->', new_weight)
     rest = term.drop(best_prime)
     # check viability by cases
     if next_prime is None:  # then all other terms have derivatives up to order n-2, so we are in x' case

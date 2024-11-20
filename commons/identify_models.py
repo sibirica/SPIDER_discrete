@@ -58,10 +58,10 @@ def identify_equations(lib_object, reg_opts, print_opts=None, threshold=1e-5, mi
                 #print(reg_opts['scaler'], '; sub_inds:', inds, '; full_cs:', reg_opts['scaler'].full_cs)
                 reg_opts['scaler'].reset_inds(inds)
                 #print(reg_opts)
-                eq, res = make_equation_from_Xi(*sparse_reg_bf(Q, **reg_opts), library)
+                eq, res = make_equation_from_Xi(*sparse_reg_bf(Q, **reg_opts), library, threshold)
             else:
                 reg_opts['subinds'] = inds
-                eq, res = make_equation_from_Xi(*sparse_reg(Q, **reg_opts), sublibrary)
+                eq, res = make_equation_from_Xi(*sparse_reg(Q, **reg_opts), sublibrary, threshold)
             if 'verbose' in reg_opts.keys() and reg_opts['verbose']:
                 print('Result:', eq, '. residual:', res)
             if res > threshold:
@@ -125,8 +125,8 @@ def interleave_identify(lib_objects, reg_opts_list, print_opts=None, threshold=1
             excluded_terms.update(exc_terms_i)
     return equations, lambdas, derived_eqns, excluded_terms
 
-def make_equation_from_Xi(Xi, lambd, best_term, lambda1, sublibrary):
-    if lambda1 < lambd:
+def make_equation_from_Xi(Xi, lambd, best_term, lambda1, sublibrary, threshold):
+    if lambda1 < lambd or lambda1 < threshold: # always select sub-threshold one-term model
         return Equation(terms=(sublibrary[best_term],), coeffs=(1,)), lambda1
     else:
         zipped = [(sublibrary[i], c) for i, c in enumerate(Xi) if c != 0]
