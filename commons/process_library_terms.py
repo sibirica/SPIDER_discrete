@@ -60,20 +60,28 @@ class Weight(object): # scalar-valued Legendre polynomial weight function (may r
         if not self.ready:
             self.make_weight_objs()
         weights_eval = [weight.linspace(dim)[1] for (weight, dim) in zip(self.weight_objs, dims)]
+        if self.scale == 0: # short-circuit the zero weight case
+            return np.zeros(dims)
         return self.scale * reduce(lambda x, y: np.tensordot(x, y, axes=0), weights_eval)
 
     def increment(self, dim):  # return new weight with an extra derivative on the dim-th dimension
         knew = self.k.copy()
         knew[dim] += 1
-        return replace(self, k=knew, ready=False)
+        new_weight = replace(self, k=knew, ready=False)
+        #print("INC:", dim, self, '->', new_weight)
+        return new_weight
         #return Weight(self.m, self.q, knew, scale=self.scale, dxs=self.dxs)
 
     def __neg__(self):
-        return replace(self, scale=-self.scale, ready=False)
+        new_weight = replace(self, scale=-self.scale, ready=False)
+        #print("NEG:", self, '->', new_weight)
+        return new_weight
         #return Weight(self.m, self.q, self.k, scale=-self.scale, dxs=self.dxs)
 
     def __mul__(self, number):
-        return replace(self, scale=self.scale*number, ready=False)
+        new_weight = replace(self, scale=self.scale*number, ready=False)
+        #print("MUL:", number, self, '->', new_weight)
+        return new_weight
         #return Weight(self.m, self.q, self.k, scale=self.scale * number, dxs=self.dxs)
 
     __rmul__ = __mul__
@@ -113,7 +121,7 @@ def multi_index_iterator(n_dimensions, rank):
     a = np.arange(n_dimensions**rank).reshape((n_dimensions,)*rank)
     return np.nditer(a, flags=['multi_index'])
 
-@dataclass
+@dataclass#(frozen=True)
 class TensorWeight: # tensor-valued weight function 
     weight_dict: dict[tuple[int, ...], Weight] # dict mapping tuples to weight functions
     rank: int # rank of tensor/library
@@ -148,9 +156,12 @@ class TensorWeight: # tensor-valued weight function
     def __repr__(self):
         return repr(self.weight_dict)
 
+    def __hash__(self):
+        return hash(repr(self))
+
     __rmul__ = __mul__
 
-@dataclass
+@dataclass#(frozen=True)
 class FactoredTensorWeight(TensorWeight): 
 # more efficient implementation might be to perform operations on base_weight instead of individual keys,
 # but I don't think it matters
@@ -171,6 +182,9 @@ class FactoredTensorWeight(TensorWeight):
 
     def __repr__(self):
         return f"{self.tensor} * {self.base_weight}"
+
+    def __hash__(self):
+        return hash(repr(self))
 
 @dataclass
 class TensorWeightBasis: # basis of TensorWeights to span desired space
@@ -523,10 +537,12 @@ class AbstractDataset(object): # template for structure of all data associated w
                     # compute weight(term) on each domain: w(t)|d = sum_(wi'(ti'))|d
                     for indexed_term, scalar_weight in self.get_index_assignments(term, tensor_weight, debug):
                         if debug:
+                            print("ASSIGNMENTS:", term, "->")
                             print("Indexed term:", indexed_term)
                             print("Scalar weight:", scalar_weight)
                         for t, w in int_by_parts(indexed_term, scalar_weight):
                             if debug:
+                                print("INT BY PARTS:", indexed_term, "->")
                                 print("Integrated term:", t)
                                 print("Integrated weight:", w)
                             for domain in self.domains:
@@ -542,11 +558,11 @@ class AbstractDataset(object): # template for structure of all data associated w
                                 ##wtd = sum([self.eval_on_domain(t, w, domain, debug=debug) 
                                            #for t, w in term_weight_pairs])
                                 
-                                wd_dict[weight, domain] += self.eval_on_domain(t, w, domain, debug=debug)
-                                #if domain==self.domains[0] and weight==self.weights[0]:
-                                #    print('I_TERM', t, 'I_WEIGHT', w, 'CURR RESULT', wd_dict[weight, domain])
+                                wd_dict[tensor_weight, domain] += self.eval_on_domain(t, w, domain, debug=debug)
+                                if domain==self.domains[0] and weight==self.weights[0]:
+                                    print('I_TERM', t, 'I_WEIGHT', w, 'CURR RESULT', wd_dict[tensor_weight, domain])
                                 #if debug:
-                                #    print("weight/term/domain evaluation (current):", wd_dict[weight, domain])
+                                #    print("weight/term/domain evaluation (current):", wd_dict[tensor_weight, domain])
                                 
 
                         ##column.append(wtd)
@@ -576,11 +592,12 @@ class AbstractDataset(object): # template for structure of all data associated w
                     #     arr = self.shortcut_trace(pv_dict[tensor_weight, domain], tensor_weight.tensor)
                     #     column.append(int_arr(arr, self.dxs)) # integrate the product array
             for weight in self.weights:
-                for domain in self.domains:
-                    #if domain==self.domains[0] and weight==self.weights[0]:
-                    #    print('term', term, 'weight', [weight.q, weight.k], 'domain', domain, 'result',
-                    #           wd_dict[weight, domain])
-                    column.append(wd_dict[weight, domain])
+                for tensor_weight in self.tensor_weight_basis[irrep, weight].tw_list:
+                    for domain in self.domains:
+                        #if domain==self.domains[0] and weight==self.weights[0]:
+                        #    print('term', term, 'weight', [weight.q, weight.k], 'domain', domain, 'result',
+                        #           wd_dict[weight, domain])
+                        column.append(wd_dict[tensor_weight, domain])
             cols_list.append(column)
             #print('CL starts:', [float(col[0]) for col in cols_list])
         return np.array(cols_list).transpose() # convert to numpy array
@@ -628,6 +645,9 @@ def int_by_parts(term, weight, dim=0):
     #if dim >= weight.n_dimensions:
     #    yield term, weight
     #else:
+    if weight.scale == 0: # no point - the weight is zero anyway
+        yield term, weight
+        return
     failed = False
     #print("START:", term, weight, dim)
     for te, we, fail in int_by_parts_dim(term, weight, dim):  # try to integrate by parts
@@ -676,6 +696,7 @@ def int_by_parts_dim(term, weight, dim, debug=False):
                 num_next += 1
             else:  # not all one-lower terms are successors of best_prime -> can't integrate further
                 yield term, weight, True
+                return
     if debug:
         print(dim, "&", weight, 'with dimensions', weight.n_dimensions)
     new_weight = weight.increment(dim if dim!='t' else weight.n_dimensions-1)
