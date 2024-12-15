@@ -40,7 +40,7 @@ Irrep = Antisymmetric | SymmetricTraceFree | FullRank
 @dataclass(frozen=True)
 class IndexHole:
     def __lt__(self, other):
-        if isinstance(other, IndexHole): #or isinstance(other, VarIndex):
+        if isinstance(other, IndexHole):
             return False
         elif isinstance(other, VarIndex):
             return True
@@ -56,7 +56,6 @@ class IndexHole:
     def __eq__(self, other):
         if not isinstance(other, IndexHole):
             return False
-            #raise TypeError(f"Operation not supported between instances of '{type(self)}' and '{type(other)}'")
         else:
             return True
 
@@ -69,7 +68,6 @@ class SMTIndex:
     src: Any = None
 
     def __lt__(self, other):
-        #raise TypeError(f"Operation not supported between instances of '{type(self)}' and '{type(other)}'")
         return str(self.var) < str(other.var)
 
     def __eq__(self, other):
@@ -94,22 +92,14 @@ class VarIndex:
             return True # 't' always goes after spatial indices
         elif not isinstance(other, VarIndex):
             return NotImplemented
-            #raise TypeError(f"'<' not supported between ({repr(self)} : {type(self)}) and ({repr(other)} : {type(other)})")
         else:
             return self.value < other.value
-
-    # def __gt__(self, other):
-    #     if not isinstance(other, VarIndex):
-    #         raise TypeError(f"'>' not supported between ({repr(self)} : {type(self)}) and ({repr(other)} : {type(other)})")
-    #     else:
-    #         return self.value < other.value
 
     def __eq__(self, other):
         if isinstance(other, str):
             return False # 't' is different from spatial indices
         elif not isinstance(other, VarIndex):
             return NotImplemented
-            #raise TypeError(f"'=' not supported between ({repr(self)} : {type(self)}) and ({repr(other)} : {type(other)})")
         else:
             return self.value == other.value
 
@@ -185,13 +175,6 @@ class EinSumExpr[T](ABC):
     def all_indices(self) -> list[T]: # make sure these are in depth-first/left-to-right order
         """ List all indices """
         return list(self.own_indices()) + [idx for expr in self.sub_exprs() for idx in expr.all_indices()]
-
-    # def map(self, f, ctx):
-    #     new_obj = {x: f(v, ctx) for x, v in self.__dict__.items()}
-    #     for x, v in self.__dict__.items():
-    #         if type(v) != type(new_obj[x]):
-    #             raise TypeError(f"{new_obj[x]} is not a plausible replacement for {v} in {str(self.__class__)}.{x}")
-    #     return dataclasses.replace(self, **new_obj)
 
     @abstractmethod
     def eq_canon(self) -> Tuple[EinSumExpr[T], int]:
@@ -289,9 +272,6 @@ def generate_indexings(expr: EinSumExpr[IndexHole | VarIndex]) -> Iterable[EinSu
         single_idx_max = s_idx_max_next
         paired_idx_max = p_idx_max_next
     constraints += [single_idx_max == n_single_inds, paired_idx_max == n_total_inds]
-    # constrain number of appearances of single idx
-    #for single_idx in range(n_single_inds):
-    #   constraints.append(z3.AtMost(*[idx.var == single_idx for idx in indices], 1))
     # constrain number of appearances in pair
     for paired_idx in range(n_single_inds, n_total_inds):
        constraints.append(z3.AtMost(*[idx.var == paired_idx for idx in indices], 2))

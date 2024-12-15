@@ -22,7 +22,6 @@ def identify_equations(lib_object, reg_opts, print_opts=None, threshold=1e-5, mi
     #if ranks is None:
     #    ranks = (0, 1, 2)
     if print_opts is None:
-        #print_opts = {sigfigs: 3, latex_output: False}
         print_opts = {'num_format': '{0:.3g}', 'latex_output': False}
     if excluded_terms is None:
         excluded_terms = set()
@@ -40,17 +39,6 @@ def identify_equations(lib_object, reg_opts, print_opts=None, threshold=1e-5, mi
                 break
             sublibrary = [s[0] for s in selection]
             inds = [s[1] for s in selection]
-            
-            #print('Sublibrary:', sublibrary, 'inds:', inds)
-            #print('Excluded terms:', excluded_terms, [hash(t.primes[0].derivand) for t in excluded_terms])
-            # strings = [repr(et) for et in excluded_terms]
-            # soi = '∂γ u_α · ∂β u_γ'
-            # for et in excluded_terms:
-            #     if repr(et)==soi:
-            #         print('We are excluding', et, 'with hash', hash(et), 'and x_derivatives',
-            #                et.primes[0].derivative.x_derivatives)
-            # for term in sublibrary:
-            #     print(f"{term} with hash {hash(term)} is in the sublibrary")# and x_derivatives {term.primes[0].derivative.x_derivatives} is in the sublibrary")
             
             # identify model
             if experimental:
@@ -183,14 +171,3 @@ def get_primes(library, max_complexity):
     all_primes = set(prime.purge_indices() for term in library 
                      for prime in term.primes if prime.complexity<=max_complexity)
     return all_primes
-
-# def translate_symmetry(symmetry):
-#     match symmetry:
-#         case 1:
-#             return "STF"
-#         case -1:
-#             return "antisymmetric"
-#         case None:
-#             return "none"
-#         case _:
-#             return "?"

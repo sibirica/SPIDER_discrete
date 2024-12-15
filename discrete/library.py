@@ -61,9 +61,7 @@ def generate_terms_to(order: int,
     :return: List of all possible LibraryTerms whose complexity is less than or equal to order, that can be generated
     using the given observables.
     """
-    #observables = sorted(observables, reverse=True) # make sure observables are in reverse order
     libterms = list()
-    #libterms.append(ConstantTerm()) # ConstantTerm doesn't exist in discrete language
     n = order  # max number of "blocks" to include
     k = len(observables)
     partitions = [] # to make sure we don't duplicate partitions
@@ -71,13 +69,8 @@ def generate_terms_to(order: int,
     # generate partitions in bijection to all possible primes
     for part in partition(n - 1, k + 2, weights=weights):  # k observables + 2 derivative dimensions, plus always 1 rho
         # account for complexities > 1
-        #part = tuple([1]+list(part)) # ordering: [rho | observables | nt, nx]
         if sum(part[:k]) <= max_observables:
-            # if part in partitions:
-            #     continue
-            # else:
             partitions.append(part)
-            # print(part)
 
     def partition_to_prime(partition):
         prime_observables = []
@@ -95,14 +88,10 @@ def generate_terms_to(order: int,
 
     # make all possible lists of primes and convert to terms of each rank, then generate labelings
     for prime_list in valid_prime_lists(primes, order, max_observables, max_rho):
-        #print("PL:", prime_list)
         parity = sum(len(prime.all_indices()) for prime in prime_list) % 2
-        #print("Parity:", parity)
         for rank in range(parity, max_rank + 1, 2):
             term = LibraryTerm(primes=prime_list, rank=rank)
             for labeled in generate_indexings(term):
-                #canon = labeled.canonicalize()
-                #libterms.append(canon)
                 # terms should already be in canonical form except eq_canon
                 libterms.append(labeled.eq_canon()[0]) 
     return libterms
@@ -121,10 +110,8 @@ def valid_prime_lists(primes: List[LibraryPrime],
     if non_empty:
         yield ()
     for i, prime in enumerate(primes): # relative_i
-        #absolute_i = relative_i + starting_ind
         complexity = prime.complexity
         n_observables = len(prime.derivand.observables)
-        #print(prime, complexity, n_observables)
         if complexity <= order and n_observables <= max_observables and 1 <= max_rho:
             for tail in valid_prime_lists(primes=primes[i:], order=order-complexity,
                                           max_observables=max_observables-n_observables, max_rho=max_rho-1,
