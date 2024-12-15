@@ -339,7 +339,7 @@ class AbstractDataset(object): # template for structure of all data associated w
         else:
             self.metric_is_identity = False
 
-    def resample(self): # should return SRD on implementing classes, so this is not type-hinted
+    def resample(self): # should return SRD that is instance of implementing classes, so this is not type-hinted
         new_srd = replace(self, domains=None, libs={irrep: lib.clear_results() for irrep, lib in self.libs.items()})
         # remake domains
         new_srd.make_domains(ndomains=len(self.domains), domain_size=self.domain_size, pad=self.pad)
@@ -454,8 +454,17 @@ class AbstractDataset(object): # template for structure of all data associated w
         #             self.metric_effect(free_assignment, assignment_2)
         
         #print('weight_array hash', hash(weight.get_weight_array(domain.shape).tostring()))
-        result = int_arr(self.eval_term(term, domain, debug) * weight.get_weight_array(domain.shape), dxs=self.dxs)
-        #print('result', result)
+        term_weight_product = self.eval_term(term, domain, debug) * weight.get_weight_array(domain.shape)
+        if debug:
+            filtered_flat = list(filter(lambda x: x!=0, term_weight_product.flat))
+            lenf = len(filtered_flat)
+            if lenf==0:
+                print("ARRAY IS 0")
+            else:
+                print("MIDDLE NZ VALUE OF ARRAY:", '{:.2E}'.format(filtered_flat[lenf//2])) # middle of the array
+        result = int_arr(term_weight_product, dxs=self.dxs)
+        if debug:
+            print('Integrated result', result)
         return result
 
     # to be used in non-identity metric case
@@ -513,6 +522,7 @@ class AbstractDataset(object): # template for structure of all data associated w
 
     def make_Q(self, irrep, by_parts=True, debug=False): # compute Q matrix for given irrep
         #debug = True
+        #by_parts = False
         #for tensor(term, tensor_weight, domain) in self.tuple_iterator(irrep):
         cols_list = []
         #n_spatial_dims = self.n_dimensions-1
@@ -540,7 +550,7 @@ class AbstractDataset(object): # template for structure of all data associated w
                             print("ASSIGNMENTS:", term, "->")
                             print("Indexed term:", indexed_term)
                             print("Scalar weight:", scalar_weight)
-                        for t, w in int_by_parts(indexed_term, scalar_weight):
+                        for t, w in int_by_parts(indexed_term, scalar_weight, by_parts):
                             if debug:
                                 print("INT BY PARTS:", indexed_term, "->")
                                 print("Integrated term:", t)
@@ -557,9 +567,9 @@ class AbstractDataset(object): # template for structure of all data associated w
                                 #    case _:  
                                 ##wtd = sum([self.eval_on_domain(t, w, domain, debug=debug) 
                                            #for t, w in term_weight_pairs])
-                                
-                                wd_dict[tensor_weight, domain] += self.eval_on_domain(t, w, domain, debug=debug)
-                                if domain==self.domains[0] and weight==self.weights[0]:
+                                debug_this_value = (domain==self.domains[0] and weight==self.weights[0] and debug)
+                                wd_dict[tensor_weight, domain] += self.eval_on_domain(t, w, domain, debug=debug_this_value)
+                                if debug_this_value:
                                     print('I_TERM', t, 'I_WEIGHT', w, 'CURR RESULT', wd_dict[tensor_weight, domain])
                                 #if debug:
                                 #    print("weight/term/domain evaluation (current):", wd_dict[tensor_weight, domain])
@@ -641,11 +651,11 @@ def int_arr(arr, dxs=None):  # integrate an array of values on an integration do
     else:
         return int_arr(integral, dxs[1:])
 
-def int_by_parts(term, weight, dim=0):
+def int_by_parts(term, weight, by_parts=True, dim=0):
     #if dim >= weight.n_dimensions:
     #    yield term, weight
     #else:
-    if weight.scale == 0: # no point - the weight is zero anyway
+    if weight.scale == 0 or not by_parts: # no point - the weight is zero anyway or we were asked not to
         yield term, weight
         return
     failed = False
@@ -660,7 +670,7 @@ def int_by_parts(term, weight, dim=0):
             dim += 1
             if dim==weight.n_dimensions-1: # on the t index
                 dim = 't'
-        yield from int_by_parts(te, we, dim)  # repeat process (possibly on next dimension)
+        yield from int_by_parts(te, we, by_parts, dim)  # repeat process (possibly on next dimension)
 
 # for integration by parts, check terms that look like x', x*x', and x*x*x' (vs all other terms have derivative orders
 # smaller by at least 2) 
