@@ -121,8 +121,12 @@ def interleave_identify(lib_objects, reg_opts_list, print_opts=None, threshold=1
         
             equations += eqs_i
             lambdas += lbds_i
-            derived_eqns.update(der_eqns_i)
-            excluded_terms.update(exc_terms_i)
+            match lib_object.irrep:
+                case int() | FullRank(): # these implications are always true
+                    derived_eqns.update(der_eqns_i)
+                    excluded_terms.update(exc_terms_i)
+                case Antisymmetric() | SymmetricTraceFree():
+                    pass # these implications depend on the specific irrep's symmetry and shouldn't be reused
     return equations, lambdas, derived_eqns, excluded_terms
 
 def make_equation_from_Xi(Xi, lambd, best_term, lambda1, sublibrary, threshold):

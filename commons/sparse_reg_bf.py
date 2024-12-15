@@ -60,7 +60,7 @@ class Scaler(object): # pre- and postprocessing by scaling/nondimensionalizing d
         if verbose:
             print("final xi", full_xi)
             print("final lambda:", lambd)
-        return full_xi, lambd/norm
+        return full_xi, lambd#/norm # already normalized in multi-term regression
         
     def postprocess_single_term(self, best_term, lambda1, norm, verbose=False):
         if verbose:
@@ -454,7 +454,7 @@ def sparse_reg_bf(theta, scaler, initializer, residual, model_iterator, threshol
             xi, lambd, k = model_iterator.get_next(theta, xi, verbose)
             # update current variables in iteration
             xis[k-1, :] = xi # we have reversed order of arrays compared to old SR - index = n_terms-1
-            lambdas[k-1] = lambd
+            lambdas[k-1] = lambd/residual.norm # WE NORMALIZE LAMBDA HERE FOR CONSISTENT EXIT CRITERION
             #if verbose:
             #    print("current xis:", xis)
 
