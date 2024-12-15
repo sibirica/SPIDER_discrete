@@ -1,7 +1,6 @@
 import numpy as np
 from numpy import polynomial as p
 
-
 def weight_leg(q):
     # return qth Legendre polynomial as a polynomial object
     orders = np.zeros(q + 1)

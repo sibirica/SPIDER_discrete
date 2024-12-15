@@ -38,12 +38,20 @@ class Scaler(object): # pre- and postprocessing by scaling/nondimensionalizing d
             for row in range(len(self.row_norms)):
                 theta[row, :] *= self.row_norms[row]
         for term in range(len(self.char_sizes)):
-            theta[:, term] /= self.char_sizes[term]  # renormalize by characteristic 
+            theta[:, term] /= self.char_sizes[term]  # renormalize by characteristic size
         return theta
+
+    def scale_model(self, model): # rescale given xi vector
+        model = np.copy(model)  # avoid bugs where array is modified in place
+        model = model[self.sub_inds]
+        model *= self.char_sizes  # renormalize by characteristic size
+        return model
         
-    def postprocess_multi_term(self, xi, lambd, norm, verbose): # Xi postprocessing
+    def postprocess_multi_term(self, xi, lambd, norm, verbose=False): # Xi postprocessing
         full_xi = np.zeros(shape=(self.full_w,))
+        #print('old xi', xi)
         xi = xi / self.char_sizes  # renormalize by char. size
+        #print('new xi', xi)
         if -min(xi) > max(xi):  # ensure vectors are "positive"
             xi = -xi
         xi = xi / max(xi)  # make largest coeff 1
@@ -52,9 +60,9 @@ class Scaler(object): # pre- and postprocessing by scaling/nondimensionalizing d
         if verbose:
             print("final xi", full_xi)
             print("final lambda:", lambd)
-        return full_xi, lambd/norm
+        return full_xi, lambd#/norm # already normalized in multi-term regression
         
-    def postprocess_single_term(self, best_term, lambda1, norm, verbose):
+    def postprocess_single_term(self, best_term, lambda1, norm, verbose=False):
         if verbose:
             print("final lambda1:", lambda1/norm)
         return self.sub_inds[best_term], lambda1/norm
@@ -86,7 +94,8 @@ class Initializer(object): # selecting initial guess
             w = theta.shape[1]
             inds = list(range(w))
             best_lambd = np.inf
-            for combo in combinations(inds, self.start_k): # return all combinations of start_k terms
+            combos = combinations(inds, self.start_k) if self.start_k<len(inds) else (inds,)
+            for combo in combos: # return all combinations of start_k terms
                 if self.inhomog and self.inhomog_col not in combo:
                     continue
                 xi_try = solve(theta, combo, self.inhomog_col)
@@ -365,6 +374,8 @@ def sparse_reg_bf(theta, scaler, initializer, residual, model_iterator, threshol
     initializer = copy.copy(initializer)
     model_iterator = copy.copy(model_iterator)
 
+    #verbose = False # to suppress output only from here
+
     # set relative residual normalization (if not dominant balance residual)
     np.set_printoptions(precision=3)
     if residual.residual_type == "fixed_column":
@@ -394,7 +405,8 @@ def sparse_reg_bf(theta, scaler, initializer, residual, model_iterator, threshol
     if w == 0:  # no inds allowed at all
         return None, np.inf, None, np.inf
     if w == 1:  # no regression to run
-        best_term, lambda1 = scaler.postprocess_single_term(best_term, lambda1)
+        norm = residual.norm if hasattr(residual, 'norm') else 1
+        best_term, lambda1 = scaler.postprocess_single_term(best_term, lambda1, norm, verbose)
         return [1], np.inf, best_term, lambda1
         
     ### INITIAL MODEL
@@ -442,7 +454,7 @@ def sparse_reg_bf(theta, scaler, initializer, residual, model_iterator, threshol
             xi, lambd, k = model_iterator.get_next(theta, xi, verbose)
             # update current variables in iteration
             xis[k-1, :] = xi # we have reversed order of arrays compared to old SR - index = n_terms-1
-            lambdas[k-1] = lambd
+            lambdas[k-1] = lambd/residual.norm # WE NORMALIZE LAMBDA HERE FOR CONSISTENT EXIT CRITERION
             #if verbose:
             #    print("current xis:", xis)
 
@@ -468,13 +480,46 @@ def sparse_reg_bf(theta, scaler, initializer, residual, model_iterator, threshol
     xi, lambd = xis[ind, :], lambdas[ind]
     
     ### POSTPROCESSING
+    #print('xi before rescaling:', xi)
     xi, lambd = scaler.postprocess_multi_term(xi, lambd, residual.norm, verbose)
+    #print('xi after rescaling:', xi)
     best_term, lambda1 = scaler.postprocess_single_term(best_term, lambda1, residual.norm, verbose)
     
     # Reset max_k
     model_iterator.max_k = max_k_for_reset
     
     return xi, lambd, best_term, lambda1
+
+# evaluate specific model on Q 
+# NOTE: use scaler with same column subsampling as any models being compared with & make sure model_vector sparsity matches it
+def evaluate_model(theta, model_vector, scaler, residual, verbose=False):
+    np.set_printoptions(precision=3)
+    if residual.residual_type == "fixed_column":
+        residual.set_norm(scaler.norm_col(theta, residual.anchor_col))
+        if verbose:
+            print('Residual normalization:', residual.norm)
+    elif residual.residual_type == "matrix_relative":
+        residual.set_norm(np.linalg.norm(theta)/theta.shape[1]) 
+        if verbose:
+            print('Residual normalization:', residual.norm)
+
+    ### PREPROCESSING
+    theta = scaler.scale_theta(theta)   
+    model_vector = scaler.scale_model(model_vector)
+    h, w = theta.shape
+
+    if residual.residual_type == "dominant_balance":
+        qc_cols = np.zeros(shape=(w,))
+        for term in model_iterator.terms:
+            qc_cols[term] = np.linalg.norm(theta[:, term]*model_vector[term])
+            if verbose:
+                print(f'qc_col[{term}]:', nrm[term])
+        residual.set_norm(np.max(qc_cols))
+        if verbose:
+            print('Residual normalization:', residual.norm)
+
+    model_vector, lambd = scaler.postprocess_multi_term(model_vector, lambd, residual.norm, verbose)
+    return lambd
 
 # taken with minor modifications from Bertsekas paper code
 def AIC(lambd, k, m, add_correction=True):
