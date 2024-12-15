@@ -136,8 +136,8 @@ def infer_equations(equation, primes, max_complexity, complexity=None):
     if complexity == max_complexity:
         return
     #print('eq_dt & eq_dx:')
-    eq_dt = dt(equation)#.canonicalize() # I don't think canonicalization is necessary here
-    eq_dx = dx(equation)#.canonicalize()
+    eq_dt = dt_fun(equation)#.canonicalize() # I don't think canonicalization is necessary here
+    eq_dx = dx_fun(equation)#.canonicalize()
     #print(eq_dt, '&', eq_dx)
     yield from infer_equations(eq_dt, primes, max_complexity, complexity=complexity+1)
     yield from infer_equations(eq_dx, primes, max_complexity, complexity=complexity+1)

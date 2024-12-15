@@ -61,7 +61,7 @@ def canonicalize(expr: EinSumExpr[Index] | Equation):
         pass
     return canon.eq_canon()[0] # canonicalize structure too
 
-def dt(expr: EinSumExpr[VarIndex]):
+def dt_fun(expr: EinSumExpr[VarIndex]):
     if isinstance(expr, ConstantTerm):
         return LibraryTerm(primes=(), rank=0)
     dted = dt_helper(expr)
@@ -89,7 +89,7 @@ def dt_helper(expr: EinSumExpr[VarIndex]):
 
 # construct term or equation by taking x derivative with respect to new i index, shifting others up by 1
 # NOT GUARANTEED TO BE CANONICAL
-def dx(expr: EinSumExpr[VarIndex]):
+def dx_fun(expr: EinSumExpr[VarIndex]):
     # the alternative implementation was to run dx and then use z3 solver to identify index labeling
     if isinstance(expr, ConstantTerm):
         return LibraryTerm(primes=(), rank=0)
