@@ -170,6 +170,10 @@ class ModelIterator(object): # selecting next iterate and enforcing stopping con
         self.terms = list(inds)
         if verbose:
             print("Terms:", self.terms)
+        if len(self.terms)<self.k:
+            self.k = len(self.terms)
+            if self.k == 1: # actually only one term left
+                self.direction = 'backward'
         
     def prepare_inhomog(self, inhomog, inhomog_col, scaler):
         self.inhomog = inhomog
