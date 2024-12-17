@@ -14,6 +14,7 @@ def identify_equations(lib_object, reg_opts, print_opts=None, threshold=1e-5, mi
         start = timer()
     equations = []
     lambdas = []
+    reg_results = []
     derived_eqns = {}
 
     library = lib_object.terms
@@ -46,16 +47,17 @@ def identify_equations(lib_object, reg_opts, print_opts=None, threshold=1e-5, mi
                 #print(reg_opts['scaler'], '; sub_inds:', inds, '; full_cs:', reg_opts['scaler'].full_cs)
                 reg_opts['scaler'].reset_inds(inds)
                 #print(reg_opts)
-                eq, res = make_equation_from_Xi(*sparse_reg_bf(Q, **reg_opts), library, threshold)
+                eq, res, reg_result = make_equation_from_Xi(sparse_reg_bf(Q, **reg_opts), library, threshold)
             else:
                 reg_opts['subinds'] = inds
-                eq, res = make_equation_from_Xi(*sparse_reg(Q, **reg_opts), sublibrary, threshold)
+                eq, res, reg_result = make_equation_from_Xi(sparse_reg(Q, **reg_opts), sublibrary, threshold)
             if 'verbose' in reg_opts.keys() and reg_opts['verbose']:
                 print('Result:', eq, '. residual:', res)
             if res > threshold:
                 break
             equations.append(eq)
             lambdas.append(res)
+            reg_results.append(reg_result)
             # add some output about the discovered model
             if timed:
                 # noinspection PyUnboundLocalVariable
@@ -76,13 +78,14 @@ def identify_equations(lib_object, reg_opts, print_opts=None, threshold=1e-5, mi
                 #if 'verbose' in reg_opts.keys() and reg_opts['verbose']:
                 #    print("All excluded terms so far:", excluded_terms)
                 derived_eqns[str(eq)].append(form_equation(lhs, rhs))
-    return equations, lambdas, derived_eqns, excluded_terms
+    return equations, lambdas, reg_results, derived_eqns, excluded_terms
 
 def interleave_identify(lib_objects, reg_opts_list, print_opts=None, threshold=1e-5, min_complexity=1,  # ranks = None
                         max_complexity=None, max_equations=999, timed=True, experimental=True,
                         excluded_terms=None):
     equations = []
     lambdas = []
+    reg_results = []
     derived_eqns = {}
     #if ranks is None:
     #    ranks = (0, 1, 2)
@@ -99,7 +102,7 @@ def interleave_identify(lib_objects, reg_opts_list, print_opts=None, threshold=1
             #if 'verbose' in reg_opts.keys() and reg_opts['verbose']:
             print("--- WORKING ON LIBRARY WITH IRREP", lib_object.irrep, "AT COMPLEXITY", complexity, '---')
             #print("Symmetry:", translate_symmetry(library[0].symmetry()))
-            eqs_i, lbds_i, der_eqns_i, exc_terms_i = identify_equations(lib_object, reg_opts,
+            eqs_i, lbds_i, rrs_i, der_eqns_i, exc_terms_i = identify_equations(lib_object, reg_opts,
                                                                         threshold=threshold,
                                                                         min_complexity=complexity,
                                                                         max_complexity=complexity,
@@ -109,20 +112,25 @@ def interleave_identify(lib_objects, reg_opts_list, print_opts=None, threshold=1
         
             equations += eqs_i
             lambdas += lbds_i
+            reg_results += rrs_i
             match lib_object.irrep:
                 case int() | FullRank(): # these implications are always true
                     derived_eqns.update(der_eqns_i)
                     excluded_terms.update(exc_terms_i)
                 case Antisymmetric() | SymmetricTraceFree():
                     pass # these implications depend on the specific irrep's symmetry and shouldn't be reused
-    return equations, lambdas, derived_eqns, excluded_terms
+    return equations, lambdas, reg_results, derived_eqns, excluded_terms
 
-def make_equation_from_Xi(Xi, lambd, best_term, lambda1, sublibrary, threshold):
+def make_equation_from_Xi(reg_result, sublibrary, threshold):
+    Xi = reg_result.xi
+    lambd = reg_result.lambd
+    best_term = reg_result.best_term
+    lambda1 = reg_result.lambda1 
     if lambda1 < lambd or lambda1 < threshold: # always select sub-threshold one-term model
-        return Equation(terms=(sublibrary[best_term],), coeffs=(1,)), lambda1
+        return Equation(terms=(sublibrary[best_term],), coeffs=(1,)), lambda1, reg_result
     else:
         zipped = [(sublibrary[i], c) for i, c in enumerate(Xi) if c != 0]
-        return Equation(terms=[e[0] for e in zipped], coeffs=[e[1] for e in zipped]).canonicalize(), lambd
+        return Equation(terms=[e[0] for e in zipped], coeffs=[e[1] for e in zipped]).canonicalize(), lambd, reg_result
 
 def infer_equations(equation, primes, max_complexity, complexity=None):
     if complexity is None:

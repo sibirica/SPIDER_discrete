@@ -9,6 +9,16 @@ import copy
 # note: in the future it might be cleaner to implement things like method, iter_direction, etc. as enums
 # also, not a good idea to use backward-forward=false with combinatorial start as it will stop at max_k
 
+# rich regression output object
+class RegressionResult(object):
+    def __init__(self, xi, lambd, best_term, lambda1, all_xis=None, all_lambdas=None):
+        self.xi = xi
+        self.lambd = lambd
+        self.best_term = best_term
+        self.lambda1 = lambda1
+        self.all_xis = all_xis # reminder: row i of these arrays corresponds to i+1 term model
+        self.all_lambdas = all_lambdas
+
 class Scaler(object): # pre- and postprocessing by scaling/nondimensionalizing data
     def __init__(self, sub_inds, char_sizes, row_norms=None): # note: char_sizes should always be set
         self.full_w = len(char_sizes)
@@ -407,11 +417,11 @@ def sparse_reg_bf(theta, scaler, initializer, residual, model_iterator, threshol
 
     # HANDLE W=0 (inf), W=1 (one-term model) CASES
     if w == 0:  # no inds allowed at all
-        return None, np.inf, None, np.inf
+        return RegressionResult(None, np.inf, None, np.inf)
     if w == 1:  # no regression to run
         norm = residual.norm if hasattr(residual, 'norm') else 1
         best_term, lambda1 = scaler.postprocess_single_term(best_term, lambda1, norm, verbose)
-        return [1], np.inf, best_term, lambda1
+        return RegressionResult([1], np.inf, best_term, lambda1)
         
     ### INITIAL MODEL
     if full_regression:
@@ -492,7 +502,7 @@ def sparse_reg_bf(theta, scaler, initializer, residual, model_iterator, threshol
     # Reset max_k
     model_iterator.max_k = max_k_for_reset
     
-    return xi, lambd, best_term, lambda1
+    return RegressionResult(xi, lambd, best_term, lambda1, all_xis=xis, all_lambdas=lambdas)
 
 # evaluate specific model on Q 
 # NOTE: use scaler with same column subsampling as any models being compared with & make sure model_vector sparsity matches it
