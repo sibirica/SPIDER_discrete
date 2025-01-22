@@ -1,8 +1,9 @@
-# SPIDER_discrete
+# SPIDER_discrete: generalized sparse regression for continuous and discrete data
 
-## Generalized sparse regression for continuous and discrete data
+##Dependencies: 
+Python 3.12+
 
-Dependencies: Python 3.12+ and the following libraries:
+Libraries:
 
 findiff - finite differences
 
