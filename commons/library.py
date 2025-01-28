@@ -663,9 +663,12 @@ class Equation[T, Derivand]:  # can represent equation (expression = 0) OR expre
         # get minimum term for standardizing free indices,
         # e.g. dx(a_\alpha * b) = d\alpha a_\beta * b + a_\beta * d\alpha b
         first : LibraryTerm = min(coeffs.keys())
+        indices = list(first.all_indices())
+        has_omega = any(idx.src.value < 0 for idx in indices)
+        #print(indices, "has omega?", has_omega)
         
-        key_map = {idx.src : idx for idx in first.all_indices()
-                                 if idx.src and idx.src.value < self.rank}
+        key_map = {idx.src : idx for idx in indices
+                                 if idx.src and idx.src.value < self.rank - has_omega}
 
         def mapper(idx):
             return key_map.get(idx.src, idx)
