@@ -11,7 +11,10 @@ def smallest_sv(A, inds=None, value=False):
         U, Sigma, V = np.linalg.svd(A, full_matrices=True)
     else:
         inds = list(inds)
-        U, Sigma, V = np.linalg.svd(A[np.ix_(inds, inds)], full_matrices=True)
+        all_inds = list(range(A.shape[0]))
+        U, Sigma, V = np.linalg.svd(A[np.ix_(all_inds, inds)], full_matrices=True)
+        #print("SMALLEST_SV", A[np.ix_(inds, inds)], Sigma)
+        #print("INDS", inds)
     V = V.transpose()  # since numpy SVD returns the transpose
     if value:
         return Sigma[-1] # smallest singular value
