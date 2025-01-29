@@ -51,6 +51,7 @@ def identify_equations(lib_object, reg_opts, print_opts=None, threshold=1e-5, mi
             else:
                 reg_opts['subinds'] = inds
                 eq, res, reg_result = make_equation_from_Xi(sparse_reg(Q, **reg_opts), sublibrary, threshold)
+            reg_result.sublibrary = sublibrary # record what the terms actually are
             if 'verbose' in reg_opts.keys() and reg_opts['verbose']:
                 print('Result:', eq, '. residual:', res)
             if res > threshold:
