@@ -1,4 +1,4 @@
-# PySPIDER: generalized sparse regression for continuous and discrete data
+# PySPIDER: sparse regression with automated symbolic logic for equivariant modeling of continuous and discrete data
 
 ## Dependencies: 
 Python 3.12+
