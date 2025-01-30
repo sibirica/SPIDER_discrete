@@ -1,4 +1,4 @@
-# SPIDER_discrete: generalized sparse regression for continuous and discrete data
+# PySPIDER: generalized sparse regression for continuous and discrete data
 
 ## Dependencies: 
 Python 3.12+
