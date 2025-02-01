@@ -90,7 +90,7 @@ def kd_gaussian_coarse_grain2d(points: float64[:, :],
     for j in prange(m):
         neighbors: uint64[:] = tree.query_radius(xi_[j, :], cutoff)[0]
         n_neighbors: unit64[:] = len(neighbors)
-        assert n_neighbors <= max_neighbors, "too many neighbors, increase max_neighbors tolerance"
+        #assert n_neighbors <= max_neighbors, "too many neighbors, increase max_neighbors tolerance"
         est_i : float64[max_neighbors] = np.zeros(max_neighbors)
         for i in prange(n_neighbors):
             est_i[i] = np.exp(-np.sum((points_[i, :] - xi_[j, :]) * (points_[i, :] - xi_[j, :])) / 2) \

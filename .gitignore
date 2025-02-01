@@ -26,7 +26,11 @@ pip-delete-this-directory.txt
 continuous/NSE2D
 discrete/viscek
 
+# Mac directory settings
+*.DS_Store
+
 /testscript.py
 /carlos_tests/
 
 Julia/Sysimage.so
+continuous/.DS_Store

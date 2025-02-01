@@ -11,6 +11,8 @@ from scipy.stats._stats import gaussian_kernel_estimate
 # uncomment if this isn't broken for you
 from coarse_grain_utils import coarse_grain_time_slices, poly_coarse_grain_time_slices
 
+from commons.utils import regex_find
+
 @dataclass(kw_only=True)
 class SRDataset(AbstractDataset):  # structures all data associated with a given sparse regression dataset
     particle_pos: np.ndarray[float]  # array of particle positions (particle, spatial index, time)
@@ -29,7 +31,7 @@ class SRDataset(AbstractDataset):  # structures all data associated with a given
         super().__post_init__()
         self.scaled_sigma = self.kernel_sigma * self.cg_res
         self.scaled_pts = self.particle_pos * self.cg_res
-        self.dxs = [1 / self.cg_res] * (self.n_dimensions - 1) + [self.deltat]  # spacings of sampling grid
+        self.dxs = [1 / self.cg_res] * (self.n_dimensions - 1) + [float(self.deltat)]  # spacings of sampling grid
         #self.cgps = set()
 
     def make_libraries(self, max_complexity=4, max_observables=3, max_rho=999):
@@ -65,6 +67,7 @@ class SRDataset(AbstractDataset):  # structures all data associated with a given
             max_corner = []
             # define domains on the *scaled* grid
             for (L, max_lim, pad_i) in zip(scaled_dims, scaled_world_size, pads):
+                #print(pad_i, max_lim - (L+pad_i) + 1)
                 num = np.random.randint(pad_i, max_lim - (L + pad_i) + 1)
                 min_corner.append(num)
                 max_corner.append(num + L - 1)
@@ -85,20 +88,19 @@ class SRDataset(AbstractDataset):  # structures all data associated with a given
                     if dist <= self.scaled_sigma * self.cutoff:
                         self.domain_neighbors[domain, t].append(i)
 
-    def eval_prime(self, prime: LibraryPrimitive, domain: IntegrationDomain, experimental: bool = False, order: int = 4):
+    def eval_prime(self, prime: LibraryPrime, domain: IntegrationDomain, experimental: bool = True, order: int = 4):
         # experimental: bool = True,
         cgp = prime.derivand
         if self.n_dimensions != 3:
             if experimental:
                 warnings.warn("Experimental method only implemented for 2D+1 systems")
-            experimental = False
         data_slice = np.zeros(domain.shape)
         if experimental:
             pt_pos = self.scaled_pts[:, :, domain.times] / self.cg_res  # Unscaled positions
             pt_pos = np.float64(pt_pos)
             weights = np.ones_like(pt_pos[:, 0, :], dtype=np.float64)
             for obs in cgp.observables:
-                obs_inds = map(obs.indices, lambda idx: idx.value)
+                obs_inds = map(lambda idx: idx.value, obs.indices)
                 #if obs.rank == 0:
                 #    data = self.data_dict[obs.string][:, 0, domain.times]
                 #else:
@@ -133,7 +135,7 @@ class SRDataset(AbstractDataset):  # structures all data associated with a given
                     weights = np.ones_like(particles, dtype=np.float64)
                     #obs_dim_ind = 0
                     for obs in cgp.observables:
-                        obs_inds = map(obs.indices, lambda idx: idx.value)
+                        obs_inds = map(lambda idx: idx.value, obs.indices)
                         #if obs.rank == 0:
                         #    data = self.data_dict[obs.string][:, 0, domain.times]
                         #else:
@@ -161,14 +163,14 @@ class SRDataset(AbstractDataset):  # structures all data associated with a given
                         pt_pos = self.scaled_pts[i, :, t_shifted]
                         # evaluate observables inside rho[...]
                         coeff = 1
-                        obs_dim_ind = 0
-                        for obs in cgp.obs_list:
+                        for obs in cgp.observables:
+                            obs_inds = map(lambda idx: idx.value, obs.indices)
                             # print(obs, i, obs_dims[obs_dim_ind], t_shifted)
-                            if obs.rank == 0:
-                                coeff *= self.data_dict[obs.string][i, 0, t_shifted]
-                            else:
-                                coeff *= self.data_dict[obs.string][i, obs_dims[obs_dim_ind], t_shifted]
-                            obs_dim_ind += obs.rank
+                            #if obs.rank == 0:
+                            #    data = self.data_dict[obs.string][:, 0, domain.times]
+                            #else:
+                            data = self.data_dict[obs.string][:, *obs_inds, domain.times]
+                            coeff *= data.astype(np.float64)
                             # print(coeff)
                         # coarse-graining this particle (one dimension at a time)
                         rngs = []
@@ -190,7 +192,12 @@ class SRDataset(AbstractDataset):  # structures all data associated with a given
                     data_slice[..., t] = time_slice
         if not experimental:
             data_slice *= self.cg_res ** (self.n_dimensions - 1)  # need to scale rho by res^(# spatial dims)!
-        return data_slice
+        # evaluate derivatives
+        orders = prime.derivative.get_spatial_orders()
+        dimorders = [orders[LiteralIndex(i)] for i in range(self.n_dimensions-1)]
+        dimorders += [prime.derivative.torder]
+        #print(prime, dimorders, data_slice.shape, self.dxs)
+        return diff(data_slice, dimorders, self.dxs) if sum(dimorders)>0 else data_slice
 
     def find_scales(self, names=None):
         # find mean/std deviation of fields in data_dict that are in names
@@ -213,7 +220,11 @@ class SRDataset(AbstractDataset):  # structures all data associated with a given
         #rho_lp = LibraryPrimitive(DerivativeOrder(0,0), rho_cgp)
         #rho_ip = IndexedPrimitive(rho_lp, space_orders=[0]*(self.n_dimensions-1), obs_dims=())
 
-        rho = get_term((key[0] for key in self.field_dict.keys()), 'rho')
+        #print(self.field_dict.keys())
+        all_cgps = [key[0] for key in self.field_dict.keys()]
+        rho_matches = regex_find(all_cgps, r'ρ')
+        rho_ind = next(rho_matches)[0]
+        rho = all_cgps[rho_ind]
         rho_std = np.std(np.dstack([self.field_dict[rho, domain] for domain in self.domains]))
         #rho_std = np.std(np.dstack([self.cg_dict[rho_cgp, (), domain] for domain in self.domains]))
         self.scale_dict['rho']['std'] = rho_std

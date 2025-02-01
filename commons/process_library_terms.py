@@ -337,6 +337,10 @@ class AbstractDataset(object): # template for structure of all data associated w
     @classmethod
     def all_rank2_irreps(cls):
         return (FullRank(rank=0), FullRank(rank=1), Antisymmetric(rank=2), SymmetricTraceFree(rank=2)) 
+
+    @classmethod
+    def only_rank2_irreps(cls):
+        return (Antisymmetric(rank=2), SymmetricTraceFree(rank=2)) 
     
     def make_libraries(self, max_complexity=4, max_observables=3, max_rho=999): # populate libs
         pass

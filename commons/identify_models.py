@@ -47,10 +47,10 @@ def identify_equations(lib_object, reg_opts, print_opts=None, threshold=1e-5, mi
                 #print(reg_opts['scaler'], '; sub_inds:', inds, '; full_cs:', reg_opts['scaler'].full_cs)
                 reg_opts['scaler'].reset_inds(inds)
                 #print(reg_opts)
-                eq, res, reg_result = make_equation_from_Xi(sparse_reg_bf(Q, **reg_opts), library, threshold)
+                eq, res, test_res, reg_result = make_equation_from_Xi(sparse_reg_bf(Q, **reg_opts), library, threshold)
             else:
                 reg_opts['subinds'] = inds
-                eq, res, reg_result = make_equation_from_Xi(sparse_reg(Q, **reg_opts), sublibrary, threshold)
+                eq, res, test_res, reg_result = make_equation_from_Xi(sparse_reg(Q, **reg_opts), sublibrary, threshold)
             reg_result.sublibrary = sublibrary # record what the terms actually are
             if 'verbose' in reg_opts.keys() and reg_opts['verbose']:
                 print('Result:', eq, '. residual:', res)
@@ -64,7 +64,11 @@ def identify_equations(lib_object, reg_opts, print_opts=None, threshold=1e-5, mi
                 # noinspection PyUnboundLocalVariable
                 time = timer() - start
                 print(f"[{time:.2f} s]")
-            print(f'Identified model: {eq.pstr(**print_opts)} (order {complexity}, residual {res:.2e})')
+            if test_res is None:
+                print(f'Identified model: {eq.pstr(**print_opts)} (order {complexity}, residual {res:.2e})')
+            else:               
+                print(f'Identified model: {eq.pstr(**print_opts)} (order {complexity}, train res {res:.2e}, test res {test_res:.2e})')
+
             # eliminate terms via infer_equations
             derived_eqns[str(eq)] = []
             for new_eq in infer_equations(eq, primes, lib_max_complexity):
@@ -127,11 +131,13 @@ def make_equation_from_Xi(reg_result, sublibrary, threshold):
     lambd = reg_result.lambd
     best_term = reg_result.best_term
     lambda1 = reg_result.lambda1 
+    lambda_test = reg_result.lambda_test
+    lambda1_test = reg_result.lambda1_test
     if lambda1 < lambd or lambda1 < threshold: # always select sub-threshold one-term model
-        return Equation(terms=(sublibrary[best_term],), coeffs=(1,)), lambda1, reg_result
+        return Equation(terms=(sublibrary[best_term],), coeffs=(1,)), lambda1, lambda1_test, reg_result
     else:
         zipped = [(sublibrary[i], c) for i, c in enumerate(Xi) if c != 0]
-        return Equation(terms=[e[0] for e in zipped], coeffs=[e[1] for e in zipped]).canonicalize(), lambd, reg_result
+        return Equation(terms=[e[0] for e in zipped], coeffs=[e[1] for e in zipped]).canonicalize(), lambd, lambda_test, reg_result
 
 def infer_equations(equation, primes, max_complexity, complexity=None):
     if complexity is None:
