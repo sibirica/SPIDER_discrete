@@ -28,7 +28,7 @@ class RegressionResult(object):
         self.sublibrary = None # list of actual terms corresponding to this sublibrary - can be set later
 
 class Scaler(object): # pre- and postprocessing by scaling/nondimensionalizing data
-    def __init__(self, sub_inds, char_sizes, row_norms=None, train_fraction=1): # note: char_sizes should always be set
+    def __init__(self, sub_inds, char_sizes, row_norms=None, unit_rows=False, train_fraction=1): # note: char_sizes should always be set
         self.full_w = len(char_sizes)
         self.sub_inds = sub_inds if sub_inds is not None else list(range(self.full_w)) # default is keeping all indices
         self.w = len(self.sub_inds)
@@ -36,6 +36,7 @@ class Scaler(object): # pre- and postprocessing by scaling/nondimensionalizing d
         self.full_cs = np.array(char_sizes) if char_sizes else np.ones(shape=(self.w,))
         self.char_sizes = self.full_cs[self.sub_inds]
         self.row_norms = np.array(row_norms) if row_norms else None
+        self.unit_rows = unit_rows
         
         self.train_fraction = train_fraction # test-train split fraction
         
@@ -55,11 +56,15 @@ class Scaler(object): # pre- and postprocessing by scaling/nondimensionalizing d
     def scale_theta(self, theta): # rescale theta and select columns from subinds
         theta = np.copy(theta)  # avoid bugs where array is modified in place
         theta = theta[:, self.sub_inds]
+        for term in range(len(self.char_sizes)):
+            theta[:, term] /= self.char_sizes[term]  # renormalize by characteristic size
         if self.row_norms is not None:
             for row in range(len(self.row_norms)):
                 theta[row, :] *= self.row_norms[row]
-        for term in range(len(self.char_sizes)):
-            theta[:, term] /= self.char_sizes[term]  # renormalize by characteristic size
+        elif self.unit_rows: # normalize rows to ~unit entries
+            h, w = theta.shape
+            for row in range(h):
+                theta[row, :] /= (np.linalg.norm(theta[row, :])/np.sqrt(w))
         return theta
 
     def train_test_split(self, theta):
