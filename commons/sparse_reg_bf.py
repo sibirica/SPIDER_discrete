@@ -15,7 +15,7 @@ random.seed(1) # for replicability
 # rich regression output object
 class RegressionResult(object):
     def __init__(self, xi, lambd, best_term, lambda1, all_xis=None, all_lambdas=None, 
-                 lambda1_test=None, lambda_test = None, all_lambdas_test=None):
+                 lambda1_test=None, lambda_test = None, all_lambdas_test=None, sublibrary=None):
         self.xi = xi
         self.lambd = lambd
         self.lambda_test = lambda_test
@@ -25,7 +25,7 @@ class RegressionResult(object):
         self.all_xis = all_xis # reminder: row i of these arrays corresponds to i+1 term model
         self.all_lambdas = all_lambdas
         self.all_lambdas_test = all_lambdas_test
-        self.sublibrary = None # list of actual terms corresponding to this sublibrary - can be set later
+        self.sublibrary = sublibrary # list of actual terms corresponding to this sublibrary - can also be set later
 
 class Scaler(object): # pre- and postprocessing by scaling/nondimensionalizing data
     def __init__(self, sub_inds, char_sizes, row_norms=None, unit_rows=False, train_fraction=1): # note: char_sizes should always be set
@@ -223,11 +223,14 @@ class ModelIterator(object): # selecting next iterate and enforcing stopping con
     def other_terms(self, w): # return range(w)\terms
         return [i for i in range(w) if i not in self.terms]
         
-    def get_next(self, theta, xi, verbose):
+    def get_next(self, theta, xi, verbose, represent=None):
+        if represent is None:
+            represent = lambda x:x
+            
         if verbose:
             print(f"Direction: {self.direction}; k: {self.k}")
         if self.direction == "forward":
-            ind = self.drop(theta, xi, verbose) # choose a term to drop
+            ind = self.drop(theta, xi, verbose, represent) # choose a term to drop
             self.terms.remove(ind)
             self.k -= 1
             if self.k==1:
@@ -236,7 +239,7 @@ class ModelIterator(object): # selecting next iterate and enforcing stopping con
                 if verbose:
                     print("One term left! Direction may be reversed.")
         else:
-            ind = self.pick(theta, xi, verbose) # choose a term to pick up
+            ind = self.pick(theta, xi, verbose, represent) # choose a term to pick up
             self.terms.append(ind)
             self.k += 1
             if self.k==self.max_k:
@@ -249,10 +252,10 @@ class ModelIterator(object): # selecting next iterate and enforcing stopping con
         if verbose:
             print("xi:", xi)
             print("lambda:", lambd)
-            print("terms:", self.terms)
+            print("terms:", [represent(term) for term in self.terms])
         return xi, lambd, self.k
     
-    def drop(self, theta, xi, verbose):
+    def drop(self, theta, xi, verbose, represent):
         s = np.zeros(shape=(len(self.terms), 1)) # term with lowest score will be dropped
         for i, ind in enumerate(self.terms):
             if ind == self.inhomog_col:
@@ -276,11 +279,11 @@ class ModelIterator(object): # selecting next iterate and enforcing stopping con
                     s[i] = np.linalg.norm(xi[ind] * col)
         best = self.terms[np.argmin(s)]
         if verbose:
-            print("Scores of terms to remove:", [(i, float(j)) for i, j in zip(self.terms, s)])
-            print("Removing term:", best)
+            print("Scores of terms to remove:", [(represent(i), float(j)) for i, j in zip(self.terms, s)])
+            print("Removing term:", represent(best))
         return best 
         
-    def pick(self, theta, xi, verbose):
+    def pick(self, theta, xi, verbose, represent):
         w = theta.shape[1]
         s = np.zeros(shape=(w-len(self.terms), 1)) # term with lowest score will be dropped
         other_terms = self.other_terms(w)
@@ -301,8 +304,8 @@ class ModelIterator(object): # selecting next iterate and enforcing stopping con
                 s[i] = -np.linalg.norm(proj) # guess for xi[col] not yet available 
         best = other_terms[np.argmin(s)]
         if verbose:
-            print("Scores of terms to add:", [(i, float(j)) for i, j in zip(other_terms, s)])
-            print("Adding term:", best)
+            print("Scores of terms to add:", [(represent(i), float(j)) for i, j in zip(other_terms, s)])
+            print("Adding term:", represent(best))
         return best
     
     def check_exit(self, xis, lambdas, verbose):
@@ -397,7 +400,7 @@ class Threshold(object):
                 print("biggest jump:", biggest_jump, "to", biggest_jump+1)
             return biggest_jump+1
         
-def sparse_reg_bf(theta, scaler, initializer, residual, model_iterator, threshold, inhomog=False, inhomog_col=None, full_regression=False, verbose=False):
+def sparse_reg_bf(theta, scaler, initializer, residual, model_iterator, threshold, inhomog=False, inhomog_col=None, full_regression=False, term_names=None, verbose=False):
     # compute sparse regression on Theta * xi = 0
     # theta: matrix of integrated terms
     # threshold: model selection criterion
@@ -431,6 +434,10 @@ def sparse_reg_bf(theta, scaler, initializer, residual, model_iterator, threshol
     
     ### PREPROCESSING
     theta = scaler.scale_theta(theta)
+    represent = lambda term: term if term_names is None else term_names[term]
+    if term_names is not None and verbose:
+        print(f"Starting regression with the sublibrary {term_names}")
+    
     if scaler.train_fraction < 1:
         theta, theta_test = scaler.train_test_split(theta)
         h_test = theta_test.shape[0]
@@ -447,19 +454,20 @@ def sparse_reg_bf(theta, scaler, initializer, residual, model_iterator, threshol
     for term in range(w):
         nrm[term] = np.linalg.norm(theta[:, term])
         if verbose:
-            print(f'nrm[{term}]:', nrm[term])
+            print(f'nrm[{represent(term)}]:', nrm[term])
     best_term, lambda1 = np.argmin(nrm), min(nrm)
     lambda1_test = np.linalg.norm(theta_test[:, best_term]) if h_test>0 else None
 
     # HANDLE W=0 (inf), W=1 (one-term model) CASES
     if w == 0:  # no inds allowed at all
-        return RegressionResult(xi=None, lambd=np.inf, best_term=None, lambda1=np.inf)
+        return RegressionResult(xi=None, lambd=np.inf, best_term=None, lambda1=np.inf, sublibrary=term_names)
     if w == 1:  # no regression to run
         norm = residual.norm if hasattr(residual, 'norm') else 1
         best_term, lambda1, lambda1_test = scaler.postprocess_single_term(best_term=best_term, lambda1=lambda1,
                                                                           test_train_ratio=test_train_ratio, lambda1_test=lambda1_test,
                                                                           norm=norm, verbose=verbose)
-        return RegressionResult(xi=[1], lambd=np.inf, best_term=best_term, lambda1=lambda1, lambda1_test=lambda1_test)
+        return RegressionResult(xi=[1], lambd=np.inf, best_term=best_term, lambda1=lambda1, 
+                                lambda1_test=lambda1_test, sublibrary=term_names)
         
     ### INITIAL MODEL
     if full_regression:
@@ -506,7 +514,7 @@ def sparse_reg_bf(theta, scaler, initializer, residual, model_iterator, threshol
         exit = False
         while not exit:
             ### ITERATION RULE
-            xi, lambd, k = model_iterator.get_next(theta, xi, verbose)
+            xi, lambd, k = model_iterator.get_next(theta, xi, verbose, represent)
             # update current variables in iteration
             xis[k-1, :] = xi # we have reversed order of arrays compared to old SR - index = n_terms-1
             lambdas[k-1] = lambd/residual.norm # WE NORMALIZE LAMBDA HERE FOR CONSISTENT EXIT CRITERION
@@ -545,7 +553,7 @@ def sparse_reg_bf(theta, scaler, initializer, residual, model_iterator, threshol
     
     ### POSTPROCESSING
     #print('xi before rescaling:', xi)
-    xi, lambd, lambda_test = scaler.postprocess_multi_term(xi=xi, lambd=lambd, norm=residual.norm, 
+    xi, lambd, lambda_test = scaler.postprocess_multi_term(xi=xi, lambd=lambd, norm=residual.norm,
                                                            test_train_ratio=test_train_ratio, lambda_test=lambda_test, verbose=verbose)
     #print('xi after rescaling:', xi)
     best_term, lambda1, lambda1_test = scaler.postprocess_single_term(best_term=best_term, lambda1=lambda1, norm=residual.norm, 
@@ -556,7 +564,7 @@ def sparse_reg_bf(theta, scaler, initializer, residual, model_iterator, threshol
     model_iterator.max_k = max_k_for_reset
     
     return RegressionResult(xi=xi, lambd=lambd, best_term=best_term, lambda1=lambda1, all_xis=xis, all_lambdas=lambdas,
-                           lambda_test=lambda_test, all_lambdas_test=test_lambdas, lambda1_test=lambda1_test)
+                           lambda_test=lambda_test, all_lambdas_test=test_lambdas, lambda1_test=lambda1_test, sublibrary=term_names)
 
 # evaluate specific model on Q 
 # NOTE: use scaler with same column subsampling as any models being compared with & make sure model_vector sparsity matches it
@@ -589,7 +597,7 @@ def evaluate_model(theta, model_vector, scaler, residual, verbose=False):
     model_vector, lambd = scaler.postprocess_multi_term(xi=model_vector, lambd=lambd, norm=residual.norm, verbose=verbose)
     return lambd
 
-# taken with minor modifications from Bertsekas paper code
+# taken with minor modifications from Bertsimas paper code
 def AIC(lambd, k, m, add_correction=True):
     rss = lambd ** 2
     aic = 2 * k + m * np.log(rss / m)
