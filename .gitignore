@@ -16,6 +16,9 @@ pip-delete-this-directory.txt
 .spyderproject
 .spyproject
 
+# IntelliJ project settings
+/.idea
+
 # data files etc.
 *.npy
 *.mp4
@@ -36,7 +39,4 @@ discrete/Matt
 
 # Julia and other outdated scripts
 Julia/Sysimage.so
-/archive
-commons/archive
-continuous/archive
-discrete/archive
+archive/
