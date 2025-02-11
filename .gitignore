@@ -16,7 +16,7 @@ pip-delete-this-directory.txt
 .spyderproject
 .spyproject
 
-# data files
+# data files etc.
 *.npy
 *.mp4
 *.mat
@@ -25,12 +25,18 @@ pip-delete-this-directory.txt
 /data
 continuous/NSE2D
 discrete/viscek
+discrete/Matt
 
 # Mac directory settings
 *.DS_Store
 
+# tests
 /testscript.py
 /carlos_tests/
 
+# Julia and other outdated scripts
 Julia/Sysimage.so
-continuous/.DS_Store
+/archive
+commons/archive
+continuous/archive
+discrete/archive
