@@ -5,7 +5,6 @@ from itertools import combinations
 import copy
 
 import random # for test-train sampling
-random.seed(1) # for replicability
 
 # new approach: for modularity, pass objects handling separate steps of the regression with their own params
 
@@ -162,11 +161,11 @@ class Initializer(object): # selecting initial guess
         return f"Initializer(method={self.method}, start_k={self.start_k})"
 
 class ModelIterator(object): # selecting next iterate and enforcing stopping condition
-    def __init__(self, max_k, backward_forward=True, brute_force=True, max_passes=10): #threshold
+    def __init__(self, max_k, backward_forward=True, max_passes=10): #threshold, brute_force=True
         self.max_k = max_k # do not try models with more than max_k terms
         #self.threshold = threshold # threshold object
         self.backward_forward = backward_forward
-        self.brute_force = brute_force # sadly non-brute force seems to drop key terms in dominant balance
+        #self.brute_force = brute_force # sadly non-brute force seems to drop key terms in dominant balance
         self.inhomog = None
         self.inhomog_col = None # note: should be set to converted index in sublibrary
 
@@ -181,7 +180,7 @@ class ModelIterator(object): # selecting next iterate and enforcing stopping con
         self.passes = 0
         
     def __repr__(self):
-        return f"ModelIterator(max_k={self.max_k}, backward_forward={self.backward_forward}, brute_force={self.brute_force}, max_passes={self.max_passes}, inhomog={self.inhomog}, inhomog_col={self.inhomog_col}, k={self.k}, direction={self.direction}, terms={self.terms}, passes={self.passes})"
+        return f"ModelIterator(max_k={self.max_k}, backward_forward={self.backward_forward}, max_passes={self.max_passes}, inhomog={self.inhomog}, inhomog_col={self.inhomog_col}, k={self.k}, direction={self.direction}, terms={self.terms}, passes={self.passes})"
         
         
     def reset(self, k, max_k, direction): # reset state variables
@@ -261,22 +260,22 @@ class ModelIterator(object): # selecting next iterate and enforcing stopping con
             if ind == self.inhomog_col:
                 s[i] = np.inf # do not remove
             else:
-                if self.brute_force: # check all possible removals
-                    terms_copy = self.terms.copy()
-                    terms_copy.remove(ind)
-                    if self.inhomog:
-                        xi = solve(theta, terms_copy, self.inhomog_col)
-                        s[i] = np.linalg.norm(theta @ xi)/np.abs(xi[self.inhomog_col])
-                    else:
-                        s[i] = smallest_sv(theta, terms_copy, value=True)
-                else: # use heuristic of term norm attributed to this column only
-                    col = theta[:, ind]
-                    for j, other_ind in enumerate(self.terms):
-                        # project out other columns
-                        if i != j:
-                            other_col = theta[:, other_ind]
-                            col -= np.dot(col, other_col) / np.linalg.norm(other_col)**2 * other_col
-                    s[i] = np.linalg.norm(xi[ind] * col)
+                # if self.brute_force: # check all possible removals
+                terms_copy = self.terms.copy()
+                terms_copy.remove(ind)
+                if self.inhomog:
+                    xi = solve(theta, terms_copy, self.inhomog_col)
+                    s[i] = np.linalg.norm(theta @ xi)/np.abs(xi[self.inhomog_col])
+                else:
+                    s[i] = smallest_sv(theta, terms_copy, value=True)
+                # else: # use heuristic of term norm attributed to this column only
+                #     col = theta[:, ind]
+                #     for j, other_ind in enumerate(self.terms):
+                #         # project out other columns
+                #         if i != j:
+                #             other_col = theta[:, other_ind]
+                #             col -= np.dot(col, other_col) / np.linalg.norm(other_col)**2 * other_col
+                #     s[i] = np.linalg.norm(xi[ind] * col)
         best = self.terms[np.argmin(s)]
         if verbose:
             print("Scores of terms to remove:", [(represent(i), float(j)) for i, j in zip(self.terms, s)])
@@ -287,21 +286,21 @@ class ModelIterator(object): # selecting next iterate and enforcing stopping con
         w = theta.shape[1]
         s = np.zeros(shape=(w-len(self.terms), 1)) # term with lowest score will be dropped
         other_terms = self.other_terms(w)
-        if not self.brute_force:
-            residual_col = theta @ xi
+        #if not self.brute_force:
+        #    residual_col = theta @ xi
         for i, ind in enumerate(other_terms):
-            if self.brute_force: # check all possible removals
-                terms_copy = self.terms.copy()
-                terms_copy.append(ind)
-                if self.inhomog:
-                    xi = solve(theta, terms_copy, self.inhomog_col)
-                    s[i] = np.linalg.norm(theta @ xi)/np.abs(xi[self.inhomog_col])
-                else:
-                    s[i] = smallest_sv(theta, terms_copy, value=True)
-            else: # use heuristic of projection of residual onto this column
-                col = theta[:, ind]
-                proj = residual_col - np.dot(residual_col, col) / np.linalg.norm(col)**2 * col
-                s[i] = -np.linalg.norm(proj) # guess for xi[col] not yet available 
+            # if self.brute_force: # check all possible removals
+            terms_copy = self.terms.copy()
+            terms_copy.append(ind)
+            if self.inhomog:
+                xi = solve(theta, terms_copy, self.inhomog_col)
+                s[i] = np.linalg.norm(theta @ xi)/np.abs(xi[self.inhomog_col])
+            else:
+                s[i] = smallest_sv(theta, terms_copy, value=True)
+            # else: # use heuristic of projection of residual onto this column
+            #     col = theta[:, ind]
+            #     proj = residual_col - np.dot(residual_col, col) / np.linalg.norm(col)**2 * col
+            #     s[i] = -np.linalg.norm(proj) # guess for xi[col] not yet available 
         best = other_terms[np.argmin(s)]
         if verbose:
             print("Scores of terms to add:", [(represent(i), float(j)) for i, j in zip(other_terms, s)])
@@ -333,7 +332,6 @@ class ModelIterator(object): # selecting next iterate and enforcing stopping con
         return True # otherwise we are done
         # for instance suppose xis did not change during b or f iteration. when it was saved it was optimal going in the other direction, and currently is optimal in the other direction, so no update will occur.
 
-### NOTE: NOT TOO THOROUGHLY TESTED, BUT SEEMS TO BE WORKING OK?
 class Residual(object): # residual computation
     # residual_type "absolute" is always 1
     # residual_type "fixed_column" is computed based on a fixed column of theta
@@ -400,7 +398,7 @@ class Threshold(object):
                 print("biggest jump:", biggest_jump, "to", biggest_jump+1)
             return biggest_jump+1
         
-def sparse_reg_bf(theta, scaler, initializer, residual, model_iterator, threshold, inhomog=False, inhomog_col=None, full_regression=False, term_names=None, verbose=False):
+def sparse_reg_bf(theta, scaler, initializer, residual, model_iterator, threshold, inhomog=False, inhomog_col=None, full_regression=False, term_names=None, verbose=False, seed=1):
     # compute sparse regression on Theta * xi = 0
     # theta: matrix of integrated terms
     # threshold: model selection criterion
@@ -414,6 +412,11 @@ def sparse_reg_bf(theta, scaler, initializer, residual, model_iterator, threshol
     # inhomog - for inhomogeneous regression, paired with inhomog_col: which term to use as b.
     # max_k: max number of terms to keep in model
     # full_regression: True if searching for dense solution
+    # term_names: name of terms corresponding to columns
+    # seed: random seed to use for test-train split
+
+    random.seed(seed)
+    
     # use copies of all mutable objects
     scaler = copy.copy(scaler)
     initializer = copy.copy(initializer)
@@ -480,6 +483,7 @@ def sparse_reg_bf(theta, scaler, initializer, residual, model_iterator, threshol
     
     max_k_for_reset = model_iterator.max_k
     max_k = min(model_iterator.max_k, w)
+    k = min(max_k, k)
     if verbose:
         print(f"max_k set to {max_k}")
     xis = np.zeros(shape=(max_k, w))
@@ -495,6 +499,7 @@ def sparse_reg_bf(theta, scaler, initializer, residual, model_iterator, threshol
         model_iterator.prepare_inhomog(inhomog, inhomog_col, scaler)
         w_inds = np.array(range(w))
         model_iterator.set_terms(w_inds[xi!=0], verbose) # NOTE that the indices are wrt sublibrary!
+        actual_k = len(model_iterator.terms)
         model_iterator.save_state(xis) # save current state of xis to check if no progress has been made
         #print(model_iterator)
         
@@ -508,14 +513,22 @@ def sparse_reg_bf(theta, scaler, initializer, residual, model_iterator, threshol
             if verbose:
                 print('Residual normalization:', residual.norm)
         # since it was not properly set before this 
+        #print("TESTING: K=", k)
         lambdas[k-1] = lambd/residual.norm
         test_lambdas[k-1] = np.linalg.norm(theta_test @ xi)/residual.norm if h_test>0 else None
+
+        if actual_k<k: # initial support is smaller than the maximum -> the initial guess works for smaller k's as well
+            for k_i in range(actual_k, k):
+                xis[k_i-1, :] = xis[k-1, :]
+                lambdas[k_i-1] = lambdas[k-1]
+                test_lambdas[k_i-1] = test_lambdas[k-1]
         
         exit = False
         while not exit:
             ### ITERATION RULE
             xi, lambd, k = model_iterator.get_next(theta, xi, verbose, represent)
             # update current variables in iteration
+            #print("TESTING: K=", k)
             xis[k-1, :] = xi # we have reversed order of arrays compared to old SR - index = n_terms-1
             lambdas[k-1] = lambd/residual.norm # WE NORMALIZE LAMBDA HERE FOR CONSISTENT EXIT CRITERION
             test_lambdas[k-1] = np.linalg.norm(theta_test @ xi)/residual.norm if h_test>0 else None

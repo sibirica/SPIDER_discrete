@@ -12,7 +12,7 @@ def smallest_sv(A, inds=None, value=False):
     else:
         inds = list(inds)
         all_inds = list(range(A.shape[0]))
-        U, Sigma, V = np.linalg.svd(A[np.ix_(all_inds, inds)], full_matrices=True)
+        U, Sigma, V = np.linalg.svd(A[:, inds], full_matrices=True)
         #print("SMALLEST_SV", A[np.ix_(inds, inds)], Sigma)
         #print("INDS", inds)
     V = V.transpose()  # since numpy SVD returns the transpose
@@ -70,7 +70,7 @@ def solve_ATA(A, inds, inhomog_col=None): # A here is A^TA
 def solve(A, inds, inhomog_col=None):
     w = A.shape[1]
     x = np.zeros(shape=(w,))
-    inds = list(inds)
+    inds = list(sorted(inds))
     if inhomog_col is None:
         x[inds] = smallest_sv(A[:, inds]) # work on submatrix with inds
     else: # note that [A b]^T[A b] = [A^TA A^Tb; ... ...]

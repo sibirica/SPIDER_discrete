@@ -24,7 +24,7 @@ def TInvPower(A, k, x0=None, mu0=None, tol=1e-12, exact=True, max_iter=50, verbo
             # y = np.linalg.solve(A, x) # pure inverse iteration
         except:
             print("Exiting early due to singular matrix")
-            return x, mu
+            return x, mu, it
         inds = np.argpartition(np.abs(y), -k)[-k:] # indices of largest absolute entries
         if forced_col is not None and forced_col not in inds: # for inhomogeneous regression
             inds = list(inds[1:]) # drop the last entry

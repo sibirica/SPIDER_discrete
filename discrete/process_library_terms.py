@@ -2,7 +2,6 @@ import warnings
 
 import numpy as np
 import scipy
-#from commons.weight import *
 from commons.process_library_terms import *
 from convolution import *
 from commons.library import *
