@@ -297,6 +297,7 @@ class AbstractDataset(object): # template for structure of all data associated w
     data_dict: Dict[Observable, np.ndarray[float]] # observable -> array of values (e.g. discrete - particle, spatial index, time)
     observables: List[Observable]  # list of observables
     # storage of computed quantities: (prim, domains) [not dims] -> array
+    cache_primes: bool = True # whether the field_dict is used
     field_dict: dict[tuple[Any, ...], np.ndarray[float]] = None 
     
     dxs: List[float] = None # grid spacings
@@ -408,11 +409,12 @@ class AbstractDataset(object): # template for structure of all data associated w
         for prime in term.primes:
         #    if debug:
         #        print(f"LibraryPrime {prime}")
-            if (prime, domain) in self.field_dict.keys():  # field is "cached"
+            if self.cache_primes and (prime, domain) in self.field_dict.keys():  # field is "cached"
                 data_slice = self.field_dict[prime, domain]
             else:
                 data_slice = self.eval_prime(prime, domain)
-                self.field_dict[prime, domain] = data_slice
+                if self.cache_primes:
+                    self.field_dict[prime, domain] = data_slice
             #print(product.shape, data_slice.shape)
             product *= data_slice
             # print(product[0, 0, 0])
